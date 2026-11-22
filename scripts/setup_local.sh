@@ -60,9 +60,6 @@ PKGS=(
   "pi-subagents:controller -> hunter subagent delegation"
   "pi-opencode-go-cache:prompt caching for OpenCode Go models (dormant for venice)"
   "pi-cache-optimizer:provider-generic prompt/cache-hit optimization + stats"
-  # pi-redteam intentionally REMOVED from deps (2026-11-22): superseded by the
-  # first-party extension .pi/extensions/sepp-redteam.ts (fork-and-fix; see
-  # README sepp-redteam section + ../redteam-review/REVIEW-NOTES.md).
 )
 for entry in "${PKGS[@]}"; do
   PKG="${entry%%:*}"; DESC="${entry#*:}"

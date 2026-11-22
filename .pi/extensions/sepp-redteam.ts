@@ -1,18 +1,8 @@
 /**
- * sepp-redteam — local pi extension (forked & fixed from npm pi-redteam 1.0.5).
+ * sepp-redteam — first-party pi extension for structured hunt phase tracking
+ * and evidence-backed findings ledger.
  *
- * WHY THE FORK EXISTS (evidence in ISSUES.md rows 31–32 and
- * ../redteam-review/REVIEW-NOTES.md):
- *   - upstream `/attack start` locked the model onto two tools that do NO
- *     network I/O → it confabulated a 9-finding report against a host that
- *     does not resolve (a mistyped ghost host). Findings must never be born without
- *     evidence again.
- *   - upstream feedback was 2-second toasts only (silent-no-op feel); the
- *     bare-/attack parser bug made it literally a no-op.
- *   - upstream shipped pre-Earendil imports (@mariozechner/*, @sinclair/typebox)
- *     and multi-agent machinery (spawn/broadcast/gather) that never worked.
- *
- * DESIGN (SEPP-ified):
+ * DESIGN:
  *   - This extension is a LEDGER, not a scanner. The hunt (probe, reproduce,
  *     record in Caido) stays governed by AGENTS.md and the controller/hunter
  *     split. Here we only hold structured state:
