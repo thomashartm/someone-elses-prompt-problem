@@ -1,4 +1,4 @@
-# SEPP (Someone Else's Prompt Problem
+# SEPP (Someone Else's Prompt Problem)
 <p align="center">
   <img src="assets/sepp-logo.jpg" alt="SEPP — Someone Else's Prompt Problem" width="600" >
 </p>
