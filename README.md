@@ -1,6 +1,16 @@
-# caido-integration
+# SEPP (Someone Else's Prompt Problem
 
-SEPP (Someone Else's Prompt Problem, sometimes Someone Else's Production Problem) is an agentic red-team stack. Controller + hunter agents autonomously drive the Caido proxy via caido-cli: orient on real traffic, hunt exploitable weaknesses, prove each finding with reproduced request pairs, and record it. All through your own proxy, with your own authenticated sessions.
+<p align="center">
+  <img src="assets/sepp-logo.jpg" alt="SEPP — Someone Else's Prompt Problem" width="600">
+</p>
+
+SEPP (Someone Else's Prompt Problem, sometimes Someone Else's Production Problem) is an agentic red-team stack, which enables a team of controller + hunter agents to autonomously drive the Caido proxy via caido-cli: 
+* orient on real traffic
+* hunt exploitable weaknesses in your API
+* prove each finding with reproduced request pairs
+* record it
+  
+All through your own proxy, with your own authenticated sessions.
 
 Security-testing agent: **pi** (model-agnostic coding agent) drives the **Caido**
 proxy through `caido-cli` to investigate delegated URLs, prove issues with
@@ -15,12 +25,6 @@ operator ──delegates URL──▶ pi agent (AGENTS.md = methodology)
                                     ▼ (all traffic proxied)
                         Caido :8080 ◀── operator's browser (auth lives here)
 ```
-
-# caido-integration
-
-<p align="center">
-  <img src="assets/sepp-logo.jpg" alt="SEPP — Someone Else's Prompt Problem" width="600">
-</p>
 
 ## Requirements
 
