@@ -1,7 +1,7 @@
 # SEPP (Someone Else's Prompt Problem
 
 <p align="center">
-  <img src="assets/sepp-logo.jpg" alt="SEPP — Someone Else's Prompt Problem" width="600">
+  <img src="assets/sepp-logo.jpg" alt="SEPP — Someone Else's Prompt Problem" width="600" align="left">
 </p>
 
 SEPP (Someone Else's Prompt Problem, sometimes Someone Else's Production Problem) is an agentic red-team stack, which enables a team of controller + hunter agents to autonomously drive the Caido proxy via caido-cli: 
