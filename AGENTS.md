@@ -61,11 +61,11 @@ Priorities for API-with-behind-DB + OAuth + LLM jobs (highest signal first):
    proven / probable / hunch.
 6. **Cost discipline**: prefer one good diff over fifty speculative probes. Use
    `batch` for bulk. Don't repeat identical requests.
-7. **Issue ledger**: when tooling malfunctions during a hunt (timeouts, auth
-   surprises, schema mismatches, workaround discovered), append a row to
-   `ISSUES.md` (symptom / root cause / fix / verification) in the same session.
-   Mark rows awaiting real-world proof as `OPEN` until verified. Never leave a
-   diagnosed-but-unrecorded issue behind.
+7. **Issue tracking**: when tooling malfunctions during a hunt (timeouts, auth
+   surprises, schema mismatches, workaround discovered), file or update a GitHub
+   issue (`gh issue create` with symptom / root cause / fix / verification) in
+   the same session. Leave it open until verified in a real run, then close it.
+   Never leave a diagnosed-but-unrecorded issue behind.
 8. **Session workspace**: every hunt runs inside a per-host-per-day workspace
    (`python3 scripts/workspace.py list`, root: `data/workspaces/`). ALL
    scripts, tools, evidence and reports you produce during a hunt MUST be

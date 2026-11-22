@@ -33,8 +33,8 @@ assumptions in the session workspace report, and surface them in your result.
    Confidence labels: proven / probable / hunch. Never fabricate.
 5. Secrets hygiene: never print full tokens/passwords; reference Caido
    request IDs or the target's `target.json` (pointer) instead.
-6. Tooling malfunction during the leg → append a row to the repo `ISSUES.md`
-   ledger (symptom / root cause / fix / verification) before finishing.
+6. Tooling malfunction during the leg → file a GitHub issue (`gh issue create`
+   with symptom / root cause / fix / verification) before finishing.
 7. Credentials live in `data/targets/<slug>/` — harvest from Caido proxy
    history, never ask the supervisor to paste secrets.
 

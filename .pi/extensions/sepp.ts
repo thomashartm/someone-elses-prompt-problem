@@ -125,7 +125,7 @@ export default function huntExtension(pi: ExtensionAPI) {
 				"- SESSION WORKSPACE: all scripts, tools, evidence and reports the hunter produces MUST live inside the workspace given above",
 				"  (scripts/ for executable helpers + its README.md index, tools/, evidence/ for captures/diffs, reports/ for the report).",
 				"- Record: findings into Caido via helpers/findings.py (ledger at data/reports/findings.json) + <workspace>/reports/YYYY-MM-DD-<host>.md — the hunter records, you verify.",
-				"- Tooling troubles go into ISSUES.md (rule 7).",
+				"- Tooling troubles go into GitHub Issues via `gh issue create` (rule 7).",
 				"- Close with the ranked report table (claim/impact/PoC/status) and confidence levels. Begin with orientation; launch the first hunter leg as soon as the workspace + credentials pointer are confirmed.",
 			].filter(Boolean).join("\n");
 
