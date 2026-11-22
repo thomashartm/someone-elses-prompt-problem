@@ -1,0 +1,16 @@
+sepp (Caido plugin)
+Copyright 2026 Thomas
+
+Contains patterns adapted from six2dez/dispatch
+(https://github.com/six2dez/dispatch), MIT License, Copyright (c) six2dez:
+
+- manifest.json structure and plugin packaging layout (manifest at zip root,
+  frontend/backend entrypoints under dist/)
+- backend: request-field extraction (sdk.requests.get(...) accessor usage) and
+  child-process spawning via login shell from the plugin backend runtime
+- frontend: context extraction (request / requests arrays) and menu/command
+  registration calls; sdk/vite dependency versions
+
+Adapted and reduced to the single "SEPP: send to Hunt" use case; dispatch
+itself is inspired by PortSwigger's custom-send-to. MIT text: see the
+dispatch upstream repository LICENSE.

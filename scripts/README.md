@@ -1,0 +1,17 @@
+# scripts index
+
+One line per script: what + invocation.
+
+check_adapters.py — offline adapter contract check: python3 scripts/check_adapters.py [slug]
+dev_smoke_sepp_menu.mjs — sepp-menu extension load-path smoke: node --experimental-strip-types scripts/dev_smoke_sepp_menu.mjs
+dev_smoke_sepp_redteam.mjs — sepp-redteam extension runtime smoke (stubbed pi): node --experimental-strip-types scripts/dev_smoke_sepp_redteam.mjs happy|restore|corrupt|pin
+engagement_status.py — controller brief from board+ledger+reports: python3 scripts/engagement_status.py [workspace-id-substring]
+export_ca.py — export Caido intercept CA via openssl s_client: python3 scripts/export_ca.py [hostname]
+harvest_target.py — harvest freshest target JWT cookie from Caido history: python3 scripts/harvest_target.py [--slug testbed] [--cookie-name N] [--path SUBSTR]
+hunter_board.py — hunter heartbeat/roster/stop/abort: python3 scripts/hunter_board.py heartbeat|list|get|stop|abort
+manage_scope.py — Caido scope manager (sepp scope, local testbed + noise denylist): python3 scripts/manage_scope.py ensure|add|show [SITE...]
+run_garak_canary.sh — garak canary via universal shim: TARGET=<slug> scripts/run_garak_canary.sh
+sepp.sh — Caido→Hunt bridge receiver (global `sepp` via make install-cli): sepp <url> <method> [raw] [cookies] ...
+setup_local.sh — one-command workstation install (behind `make setup`): bash scripts/setup_local.sh
+smoke.sh — plumbing smoke (caido, CLI auth, helpers --help): bash scripts/smoke.sh
+workspace.py — hunt session workspaces: python3 scripts/workspace.py list|ensure|path|prune

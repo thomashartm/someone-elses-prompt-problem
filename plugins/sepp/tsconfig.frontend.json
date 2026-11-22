@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["DOM", "ESNext"],
+    "types": ["@caido/sdk-backend"]
+  },
+  "include": ["src/frontend/**/*.ts", "src/shared.ts"]
+}

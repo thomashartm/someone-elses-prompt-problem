@@ -1,0 +1,28 @@
+{
+  "id": "sepp",
+  "name": "SomebodyElsesProblem",
+  "version": "0.1.0",
+  "description": "SEPP: someone else's prompt problem. Right-click any request in Caido and hand it to somebody else, which is actually an AI agent's live session",
+  "icon": "icon.svg",
+  "author": {
+    "name": "thomashartm"
+  },
+  "plugins": [
+    {
+      "kind": "frontend",
+      "id": "sepp-frontend",
+      "name": "SEPP Frontend",
+      "entrypoint": "frontend/script.js",
+      "backend": {
+        "id": "sepp-backend"
+      }
+    },
+    {
+      "kind": "backend",
+      "id": "sepp-backend",
+      "name": "SEPP Backend",
+      "runtime": "javascript",
+      "entrypoint": "backend/script.js"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "caido": {
+      "command": "/Users/thomas/.local/bin/caido-mcp-server",
+      "args": ["serve", "--url", "http://127.0.0.1:8080"],
+      "description": "Caido proxy: captured HTTP traffic history (list, read, diff, sitemap, body conversion), request/replay data from the security-testing proxy"
+    }
+  }
+}

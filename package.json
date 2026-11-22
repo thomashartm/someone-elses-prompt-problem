@@ -1,0 +1,9 @@
+{
+  "name": "caido-integration",
+  "private": true,
+  "description": "Security-testing agent harness: pi drives the Caido proxy to hunt delegated targets",
+  "type": "module",
+  "dependencies": {
+    "@earendil-works/pi-tui": "1.5.2"
+  }
+}
