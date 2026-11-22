@@ -20,6 +20,12 @@ operator ──delegates URL / Caido right-click──▶ pi controller ──�
                                                                       Caido :8080 ◀── browser session (auth)
 ```
 
+## Disclaimer
+
+> **For educational and authorized security testing only.**
+>
+> This repository is provided for educational purposes and must only be used to test and validate your own applications (or systems for which you have explicit, written authorization). The author is not responsible or liable for any misuse, unauthorized testing, or damage resulting from the use of this software.
+
 ## Requirements
 
 - **Caido** running locally on `127.0.0.1:8080` ([caido.io](https://caido.io))
