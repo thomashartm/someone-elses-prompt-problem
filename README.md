@@ -1,14 +1,15 @@
 # SEPP (Someone Else's Prompt Problem)
 
 <p align="center">
-  <img src="assets/sepp-logo.jpg" alt="SEPP — Someone Else's Prompt Problem" width="600">
+  <img src="assets/sepp-logo.jpg" alt="SEPP Someone Else's Prompt Problem" width="600">
 </p>
 
 ## Overview
 
 SEPP (Someone Else's Prompt Problem) is an agentic security-testing stack for **LLM-enabled APIs**.
 
-It targets the **OWASP Top 10 for LLM Applications** (prompt injection, sensitive data/system-prompt disclosure, insecure output handling, excessive agency, model DoS, etc.) alongside classic API weaknesses (BOLA/IDOR, JWT/OAuth flaws, injection, mass assignment). Autonomous controller and hunter agents drive **Caido** through `caido-cli` and run **NVIDIA garak** probes through a target-blind OpenAI shim — reusing your authenticated browser sessions in Caido and proving every finding with reproduced before/after request pairs.
+It targets the **OWASP Top 10 for LLM Applications** (prompt injection, sensitive data/system-prompt disclosure, insecure output handling, excessive agency, model DoS, etc.) alongside classic API weaknesses (BOLA/IDOR, JWT/OAuth flaws, injection, mass assignment). 
+An autonomous controller and supported by a team of hunter agents drive **Caido** through `caido-cli` and run **NVIDIA garak** probes through a target-blind OpenAI shim, reusing your authenticated browser sessions in Caido and proving every finding with reproduced before/after request pairs.
 
 ```
 operator ──delegates URL / Caido right-click──▶ pi controller ──▶ hunter subagents
@@ -72,13 +73,14 @@ Start a controller session:
 
 Send a target to the agent either in chat (`target: https://api.example.com/v2/chat`) or by right-clicking a request in Caido HTTP History → **SEPP: send to Hunt**.
 
-The main session acts as the **controller** (orients on Caido history, plans, verifies evidence, reports) and delegates hands-on probing to background **hunter** subagents. Destructive or state-changing probes escalate to you for approval.
+The main session acts as the **controller** (orients on Caido history, plans, verifies evidence, reports) and delegates hands-on probing to background **hunter** subagents. 
+Potentially destructive or state-changing probes escalate to you for approval.
 
 ### Session commands
 
 | Command | Purpose |
 |---|---|
-| `alt+g` / `/menu` | Capability hub: prompt templates, hunt starters, board/brief shortcuts, toolchain check |
+| `option+g` / `alt+g` / `/menu` | Capability hub: prompt templates, hunt starters, board/brief shortcuts, toolchain check |
 | `/hunt` | Show current hunt status and target ledger |
 | `/hunt start <url>` | Arm the findings and phase ledger for a target |
 | `/hunt here <url> [notes]` | Run a hunt directly in the current session with ledger tracking |
