@@ -1,10 +1,8 @@
-# SEPP (Someone Else's Prompt Problem)
-
 <p align="center">
   <img src="assets/sepp-logo-v2.jpg" alt="SEPP Someone Else's Prompt Problem" width="600">
 </p>
 
-## Overview
+# SEPP (Someone Else's Prompt Problem)
 
 SEPP (Someone Else's Prompt Problem) is an agentic security-testing stack for **LLM-enabled APIs**.
 
