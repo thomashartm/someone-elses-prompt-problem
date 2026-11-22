@@ -90,7 +90,11 @@ def classify(stdout_text, marker):
 def cmd_run(args):
     cfg = json.loads(pathlib.Path(args.config).read_text())
     payloads_path = ROOT / cfg.get("payloads_file", "payloads/llm_injection.txt")
-    payloads = [p.strip() for p in payloads_path.read_text().splitlines() if p.strip()]
+    payloads = [
+        p.strip()
+        for p in payloads_path.read_text().splitlines()
+        if p.strip() and not p.strip().startswith("#")
+    ]
     marker = cfg.get("marker") or rand_marker()
 
     # Baseline: neutral payload first so diffs have an anchor.
