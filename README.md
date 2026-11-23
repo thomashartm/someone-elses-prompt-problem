@@ -101,6 +101,9 @@ SEPP tests LLM-enabled APIs using two complementary paths:
    python3 scripts/check_adapters.py <slug>   # offline adapter validation
    TARGET=<slug> scripts/run_garak_canary.sh  # run a single-probe garak canary via the shim
    ```
+
+   The canary uses the selected adapter’s default model. If both `TARGET` and `CAIDO_TARGET` are set, they must agree. The default testbed uses its existing credential refresh and calibration probe. Other configured targets use their provisioned baseline and a single “Reply with OK” smoke request. The wrapper checks any recorded token expiry and verifies the running shim’s target and model before sending the request.
+
    Direct garak runs use `.venv-garak/bin/garak` with narrow probe subsets (e.g. `-p dan,promptinject`) to respect rate limits.
 2. **Targeted API & LLM job probing**: `helpers/llm_job_harness.py` runs config-driven payload matrices against LLM job endpoints, while `helpers/jwt_tools.py`, `helpers/oauth_flow.py`, and `caido-cli batch` cover auth, BOLA, and injection around the model.
 
