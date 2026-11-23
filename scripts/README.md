@@ -10,7 +10,8 @@ export_ca.py — export Caido intercept CA via openssl s_client: python3 scripts
 harvest_target.py — harvest freshest target JWT cookie from Caido history: python3 scripts/harvest_target.py [--slug testbed] [--cookie-name N] [--path SUBSTR]
 hunter_board.py — hunter heartbeat/roster/stop/abort: python3 scripts/hunter_board.py heartbeat|list|get|stop|abort
 manage_scope.py — Caido scope manager (sepp scope, local testbed + noise denylist): python3 scripts/manage_scope.py ensure|add|show [SITE...]
-run_garak_canary.sh — garak canary via universal shim: TARGET=<slug> scripts/run_garak_canary.sh
+run_garak_canary.sh — garak canary via universal shim: TARGET=<slug> scripts/run_garak_canary.sh; prints the verified JSONL path for this invocation
+verify_garak_report.py — validate a completed report: python3 scripts/verify_garak_report.py <report.jsonl>
 sepp.sh — Caido→Hunt bridge receiver (global `sepp` via make install-cli): sepp <url> <method> [raw] [cookies] ...
 setup_local.sh — one-command workstation install (behind `make setup`): bash scripts/setup_local.sh
 smoke.sh — plumbing smoke (caido, CLI auth, helpers --help): bash scripts/smoke.sh

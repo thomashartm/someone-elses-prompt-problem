@@ -89,11 +89,14 @@ else
   RUN_GARAK+=(-p test.Test --probe_options '{"test":{"Test":{"prompts":["Reply with OK."]}}}')
 fi
 if command -v timeout >/dev/null 2>&1; then
-  timeout 900 "${RUN_GARAK[@]}"
+  RUN_GARAK=(timeout 900 "${RUN_GARAK[@]}")
 elif command -v gtimeout >/dev/null 2>&1; then
-  gtimeout 900 "${RUN_GARAK[@]}"
-else
-  "${RUN_GARAK[@]}"
-fi 2>&1 | tail -40
+  RUN_GARAK=(gtimeout 900 "${RUN_GARAK[@]}")
+fi
 
-echo "== canary done; reports in data/reports/garak/ =="
+RUN_DIR="$(mktemp -d "$ROOT/data/reports/garak/canary.XXXXXXXX")"
+REPORT_PREFIX="$RUN_DIR/canary"
+"${RUN_GARAK[@]}" --report_prefix "$REPORT_PREFIX" 2>&1 | tail -40
+
+REPORT="${REPORT_PREFIX}.report.jsonl"
+python3 "$ROOT/scripts/verify_garak_report.py" "$REPORT"
