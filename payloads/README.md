@@ -30,3 +30,7 @@ python3 helpers/llm_job_harness.py init > config.json
 # edit config.json: set endpoint, headers, and payloads_file (e.g. "payloads/llm07_system_prompt_leak.txt")
 python3 helpers/llm_job_harness.py run config.json
 ```
+
+The harness explicitly uses a 2,000-byte body limit for live responses. Each report row records `evidence` as `complete`, `truncated`, `incomplete`, or `tool_error`. The last three outcomes have `signals: null` and stop the run with exit 1. An empty signal list is possible only after a complete response.
+
+For an already saved `caido-cli raw` output, run `python3 helpers/llm_job_harness.py inspect response.txt --reference SAMPLE`. This offline check accepts up to 1,000,000 bytes of CLI output, checks the declared body length in bytes, and reports reference presence only for complete bodies. Its exit status describes evidence completeness.

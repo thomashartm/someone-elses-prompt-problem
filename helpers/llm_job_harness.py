@@ -27,6 +27,7 @@ import argparse
 import json
 import pathlib
 import random
+import re
 import string
 import subprocess
 import sys
@@ -35,6 +36,8 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA_REPORTS = ROOT / "data" / "reports"
 DEFAULT_PAUSE = 1.0
+CLI_BODY_LIMIT = 2_000
+MAX_SAVED_OUTPUT = 1_000_000
 
 
 def rand_marker(prefix="MRK"):
@@ -64,27 +67,52 @@ def via_caido_raw(method, url, headers, body_text):
         raw = ("\r\n".join(lines) + "\r\n\r\n" + body_text).encode()
     else:
         raw = ("\r\n".join(lines) + "\r\n\r\n").encode()
-    proc = subprocess.run(["caido-cli", "raw", "--host", host, "-f", "-"],
-                          input=raw, capture_output=True, timeout=60)
-    return proc.stdout.decode(errors="replace")
+    try:
+        proc = subprocess.run(
+            ["caido-cli", "raw", "--host", host, "--body-limit", str(CLI_BODY_LIMIT), "-f", "-"],
+            input=raw, capture_output=True, timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        return {"evidence": "tool_error", "reason": "Caido CLI timed out"}
+    except OSError as exc:
+        return {"evidence": "tool_error", "reason": f"Could not run Caido CLI (errno {exc.errno})"}
+    if proc.returncode:
+        return {"evidence": "tool_error", "reason": f"Caido CLI exited {proc.returncode}"}
+    return read_response(proc.stdout)
 
 
-def classify(stdout_text, marker):
-    lower = stdout_text.lower()
+def read_response(output):
+    """Validate the byte framing produced by caido-cli raw v4.5."""
+    header, separator, body = output.partition(b"\n---\n")
+    first_line = header.partition(b"\n")[0]
+    status = re.fullmatch(rb"([1-5]\d\d) [^\s]* (\d{1,19})B", first_line)
+    if not separator or not status:
+        return {"evidence": "incomplete", "reason": "Missing or invalid Caido response header"}
+    size = int(status[2])
+    info = {"code": status[1].decode("ascii"), "body_bytes": size}
+    # fmtResp adds one final newline; newlines in the body itself count as evidence.
+    if body and not body.endswith(b"\n"):
+        return {**info, "evidence": "incomplete", "reason": "Missing final newline"}
+    body = body.removesuffix(b"\n")
+    prefix, newline, last = body.rpartition(b"\n")
+    if newline and last == f"[...truncated, {size}B total]".encode() and len(prefix) < size:
+        return {**info, "evidence": "truncated", "reason": "Caido clipped the response body"}
+    if len(body) != size:
+        return {**info, "evidence": "incomplete", "reason": "Body length differs from Caido's total"}
+    return {**info, "evidence": "complete", "body": body}
+
+
+def classify(body_text, marker):
+    lower = body_text.lower()
     signals = []
-    if marker and marker in stdout_text:
+    if marker and marker in body_text:
         signals.append("REFLECTED_MARKER")
     for kw, tag in [("queue", "QUEUE_LEAK"), ("priority", "PRIORITY_ECHO"),
                     ("admin", "ADMIN_ECHO"), ("internal", "INTERNAL_ECHO"),
                     ("stack", "STACK_TRACE"), ("exception", "ERROR_SPLAT")]:
         if kw in lower:
             signals.append(tag)
-    code = "?"
-    for line in stdout_text.splitlines():
-        if "HTTP/" in line:
-            code = line.split()[1]
-            break
-    return code, signals
+    return signals
 
 
 def cmd_run(args):
@@ -103,25 +131,50 @@ def cmd_run(args):
         marker_this = marker + ("B" if idx == 0 else "")
         body = render(cfg["body_template"], payload.replace("{{MARKER}}", marker_this), marker_this)
         body_text = body if isinstance(body, str) else json.dumps(body)
-        out = via_caido_raw(cfg.get("method", "POST"), cfg["endpoint"],
-                            cfg["headers"], body_text)
-        code, signals = classify(out, marker_this)
-        results.append({"idx": idx, "code": code, "signals": sorted(signals), "payload": payload[:80]})
-        print("#%02d -> %s %s  |  %s" % (idx, code, ",".join(sorted(signals)) or "-", payload[:70]))
+        response = via_caido_raw(cfg.get("method", "POST"), cfg["endpoint"], cfg["headers"], body_text)
+        body = response.pop("body", None)
+        row = {"idx": idx, "code": "?", "signals": None, "payload": payload[:80], **response}
+        results.append(row)
+        if row["evidence"] != "complete":
+            print(f"#{idx:02d} -> {row['evidence']}: {row['reason']}")
+            break
+        signals = sorted(classify(body.decode(errors="replace"), marker_this))
+        row["signals"] = signals
+        print("#%02d -> %s %s  |  %s" % (idx, row["code"], ",".join(signals) or "-", payload[:70]))
         time.sleep(float(cfg.get("pause_seconds", DEFAULT_PAUSE)))
 
-    base = results[0]["signals"]
-    print("\nBaseline signals: %s" % (",".join(base) or "(none)"))
-    interesting = [r for r in results[1:] if set(r["signals"]) - set(base)]
-    print("\n=== PROBE RESULTS REQUIRING EYES ON RAW (diverging from baseline) ===")
-    for r in interesting:
-        print(" #%02d %s %s" % (r["idx"], r["code"], ",".join(r["signals"])))
+    if results and results[0]["evidence"] == "complete":
+        base = results[0]["signals"]
+        print("\nBaseline signals: %s" % (",".join(base) or "(none)"))
+        print("\n=== PROBE RESULTS REQUIRING EYES ON RAW (diverging from baseline) ===")
+        for row in results[1:]:
+            if row["signals"] is not None and set(row["signals"]) - set(base):
+                print(" #%02d %s %s" % (row["idx"], row["code"], ",".join(row["signals"])))
     (DATA_REPORTS).mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    outfile = DATA_REPORTS / ("llmharness-" + stamp + ".json")
-    outfile.write_text(json.dumps({"results": results, "marker": marker}, indent=2))
-    print("\nfull detail -> %s\nnext: caido-cli request <id> for the interesting ones;" % outfile)
-    return 0
+    outfile = DATA_REPORTS / f"llmharness-{stamp}-{time.time_ns()}.json"
+    outfile.write_text(json.dumps({"results": results, "marker": marker, "body_limit": CLI_BODY_LIMIT}, indent=2))
+    print(f"\nReport: {outfile}")
+    return 0 if results and results[-1]["evidence"] == "complete" else 1
+
+
+def cmd_inspect(args):
+    """Check a previously saved CLI response without sending a request."""
+    try:
+        with args.file.open("rb") as stream:
+            output = stream.read(MAX_SAVED_OUTPUT + 1)
+    except OSError as exc:
+        print(f"Could not read saved response (errno {exc.errno})", file=sys.stderr)
+        return 1
+    if len(output) > MAX_SAVED_OUTPUT:
+        result = {"evidence": "incomplete", "reason": "Saved output exceeds inspection limit"}
+    else:
+        result = read_response(output)
+    body = result.pop("body", None)
+    if args.reference is not None and body is not None:
+        result["reference_present"] = args.reference.encode() in body
+    print(json.dumps(result))
+    return int(result["evidence"] != "complete")
 
 
 def cmd_init(_args):
@@ -162,6 +215,10 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("run"); s.add_argument("config"); s.set_defaults(func=cmd_run)
     s = sub.add_parser("init"); s.set_defaults(func=cmd_init)
+    inspect = sub.add_parser("inspect", help="Check a saved caido-cli raw response offline")
+    inspect.add_argument("file", type=pathlib.Path)
+    inspect.add_argument("--reference", help="Check for literal text in a complete saved body")
+    inspect.set_defaults(func=cmd_inspect)
     args = ap.parse_args()
     sys.exit(args.func(args) or 0)
 
