@@ -32,18 +32,20 @@ done
 curl -sf "http://127.0.0.1:${PORT}/healthz" >/dev/null || { echo "shim not healthy"; exit 1; }
 
 mkdir -p "$ROOT/data/reports/garak"
-cd "$ROOT/data/reports/garak"
-echo "== garak canary (dan.DAN_Jailbreak, 1 generation) =="
+echo "== garak canary (1 generation) =="
 # GNU timeout is absent on stock macOS; gtimeout (coreutils) when present,
 # otherwise run unguarded (canary is 1 probe; curl/garak enforce their own)
 RUN_GARAK=("$ROOT/.venv-garak/bin/garak" --model_type openai -n testbed-chat
            --generations 1 -p dan.DAN_Jailbreak)
 if command -v timeout >/dev/null 2>&1; then
-  timeout 900 "${RUN_GARAK[@]}"
+  RUN_GARAK=(timeout 900 "${RUN_GARAK[@]}")
 elif command -v gtimeout >/dev/null 2>&1; then
-  gtimeout 900 "${RUN_GARAK[@]}"
-else
-  "${RUN_GARAK[@]}"
-fi 2>&1 | tail -40
+  RUN_GARAK=(gtimeout 900 "${RUN_GARAK[@]}")
+fi
 
-echo "== canary done; reports in data/reports/garak/ =="
+RUN_DIR="$(mktemp -d "$ROOT/data/reports/garak/canary.XXXXXXXX")"
+REPORT_PREFIX="$RUN_DIR/canary"
+"${RUN_GARAK[@]}" --report_prefix "$REPORT_PREFIX" 2>&1 | tail -40
+
+REPORT="${REPORT_PREFIX}.report.jsonl"
+python3 "$ROOT/scripts/verify_garak_report.py" "$REPORT"
