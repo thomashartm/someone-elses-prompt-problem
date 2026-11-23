@@ -12,6 +12,11 @@ services:
       TESTBED_BACKEND: ${TESTBED_BACKEND:-mock}
       TESTBED_MARKER: ${TESTBED_MARKER:-}
       TESTBED_DATA_DIR: /data
+      OPENAI_BASE_URL:
+      OPENAI_API_KEY:
+      TESTBED_MODEL:
+      TESTBED_VENICE_MAX_TOKENS:
+      TESTBED_VENICE_CHAR_BUDGET:
     volumes:
       - testbed-data:/data
     healthcheck:
