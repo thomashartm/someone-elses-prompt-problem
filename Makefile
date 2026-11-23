@@ -79,3 +79,25 @@ testbed-canary:
 ## testbed-logs: follow the testbed app log
 testbed-logs:
 	docker compose -f testbed/docker-compose.yml logs -f llm-app
+
+CONTROL_PYTHON ?= python3
+LLM_PROFILE ?= core
+LLM_GATE_PROFILE ?= smoke
+
+.PHONY: testbed-local llm-smoke llm-battery llm-gate
+
+## testbed-local: start the isolated local Ollama testbed
+testbed-local:
+	docker compose -f testbed/docker-compose.yml -f testbed/ollama.yml up -d --build --wait
+
+## llm-smoke: run local readiness and artifact admission controls
+llm-smoke:
+	"$(CONTROL_PYTHON)" scripts/llm_battery.py --profile smoke
+
+## llm-battery: run a bounded local control profile
+llm-battery:
+	"$(CONTROL_PYTHON)" scripts/llm_battery.py --profile "$(LLM_PROFILE)" $(if $(LOCAL_SUMMARY),--local-summary "$(LOCAL_SUMMARY)")
+
+## llm-gate: evaluate saved evidence against a required policy
+llm-gate:
+	"$(CONTROL_PYTHON)" scripts/llm_gate.py "$(POLICY)" "$(REPORT)" --profile "$(LLM_GATE_PROFILE)"

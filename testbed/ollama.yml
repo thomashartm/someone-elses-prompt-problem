@@ -1,0 +1,14 @@
+name: sepp-testbed-local
+
+services:
+  llm-app:
+    container_name: sepp-testbed-local
+    ports: !override
+      - "127.0.0.1:8766:8765"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TESTBED_BACKEND: ollama
+      OPENAI_BASE_URL: http://host.docker.internal:11434/v1
+      OPENAI_API_KEY: ""
+      TESTBED_MODEL: qwen2.5:7b

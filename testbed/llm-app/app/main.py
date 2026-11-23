@@ -19,11 +19,26 @@ from . import auth, db, guards
 
 DATA_DIR = os.environ.get("TESTBED_DATA_DIR", "/data")
 BACKEND = os.environ.get("TESTBED_BACKEND", "mock")
+if BACKEND not in ("mock", "venice", "ollama"):
+    raise RuntimeError(f"unknown TESTBED_BACKEND {BACKEND!r}")
+
 MARKER = os.environ.get("TESTBED_MARKER", "")
 
 SECRET = auth.login_secret(DATA_DIR)
 
 app = FastAPI(title="sepp-testbed", version="b1")
+
+
+if BACKEND in ("venice", "ollama"):
+    from . import venice
+
+    @app.exception_handler(venice.BudgetExhausted)
+    async def budget_error(request, exc):
+        return JSONResponse({"detail": f"operator budget: {exc}"}, status_code=429)
+
+    @app.exception_handler(venice.BackendError)
+    async def provider_error(request, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=502)
 
 
 # ------------------------------------------------------------------ helpers
@@ -326,7 +341,9 @@ def llm_summarize(req: SummarizeReq, con=Depends(get_db), authorization: str = H
     elif guards.is_strict():
         note_text = eng.filter_blacklist(eng.normalize(note_text))
 
+    provider = {}
     summary = respond(
+        provider=provider,
         prompt_context=note_text,
         question=f"summarize note #{req.note_id}",
         marker=_marker(),
@@ -339,7 +356,10 @@ def llm_summarize(req: SummarizeReq, con=Depends(get_db), authorization: str = H
         (user["tenant_id"], user["id"], summary, time.time()),
     )
     con.commit()
-    return {"id": cur.lastrowid, "summary": summary}
+    result = {"id": cur.lastrowid, "summary": summary}
+    if provider:
+        result["provider"] = provider
+    return result
 
 
 @app.get("/llm/assistant")
@@ -532,13 +552,10 @@ HEAVY_LIMIT_PER_WINDOW = 3
 HEAVY_WINDOW_S = 60
 
 
-def respond(**kwargs):
-    """Backend dispatcher: mock (default) or venice. Tier semantics are
-    encoded in the ARGUMENTS (data_only / directive_enabled / marker), which
-    each backend honours - mock mechanically, venice via prompt framing."""
-    if BACKEND == "venice":
-        from . import venice
-        return venice.respond(**kwargs)
+def respond(*, provider=None, **kwargs):
+    """Select the template engine or the configured OpenAI-compatible provider."""
+    if BACKEND != "mock":
+        return venice.respond(provider=provider, **kwargs)
     return eng.respond(**kwargs)
 
 
@@ -688,15 +705,9 @@ def llm_heavy(req: HeavyReq, con=Depends(get_db), authorization: str = Header(de
         con.execute("INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)", (key, str(count + 1)))
         con.commit()
 
-    if BACKEND == "venice":
-        from . import venice
-        try:
-            text = venice.chat_completion([
-                {"role": "user", "content": f"Expand briefly: {req.prompt[:200]}"}])
-        except venice.BudgetExhausted as exc:
-            raise HTTPException(429, f"operator budget: {exc}")
-        except venice.BackendError as exc:
-            raise HTTPException(502, str(exc))
+    if BACKEND != "mock":
+        text = venice.chat_completion([
+            {"role": "user", "content": f"Expand briefly: {req.prompt[:200]}"}])
     else:
         size = {"strict": 1000, "naive": 4000}.get(guards.TIER, 8000)  # off -> 8000
         text = eng.heavy_text(req.prompt, size)

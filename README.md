@@ -152,3 +152,5 @@ Key environment variables: `CAIDO_TARGET` (target slug under `data/targets/`, de
 ```bash
 ./scripts/smoke.sh    # checks Caido reachability, CLI auth, and helper CLIs
 ```
+
+[LLM control verification](docs/llm-control-verification.md) covers local target readiness, smoke/core/full profiles, the Ollama summary, and evaluating captured application outcomes.
