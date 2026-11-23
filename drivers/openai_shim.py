@@ -90,7 +90,8 @@ def create_app(slug: str) -> FastAPI:
 
     @app.get("/healthz")
     def healthz():
-        return {"ok": True, "target": slug, "adapter": "loaded", "last_conv": getattr(adapter, "LAST_CONV", None)}
+        return {"ok": True, "target": slug, "model": adapter.default_model(), "pid": os.getpid(),
+                "adapter": "loaded", "last_conv": getattr(adapter, "LAST_CONV", None)}
 
     return app
 
