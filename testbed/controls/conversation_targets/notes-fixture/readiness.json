@@ -1,0 +1,21 @@
+{
+  "target": "notes-fixture",
+  "backend": "mock",
+  "workflow": "note-summary",
+  "fixtures": {
+    "ok": {
+      "evidence_id": "local-notes-ok",
+      "file": "ok.json",
+      "completion": "complete",
+      "expected_text": "[notes] Here is what I have for you.\nExcerpt (treated as data): \"Planning notes\nMonday delivery\"",
+      "delivery": "in-process"
+    },
+    "declined": {
+      "evidence_id": "local-notes-declined",
+      "file": "declined.json",
+      "completion": "complete",
+      "expected_text": "Add a note before requesting a summary.",
+      "delivery": "in-process"
+    }
+  }
+}

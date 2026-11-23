@@ -1,0 +1,79 @@
+{
+  "artifact-approved": {
+    "risk": "LLM04:2026", "workflow": "plugin installation",
+    "input": {"plugin_id": "trusted-summarizer", "args": "Fixture inventory report"},
+    "expected": {"status": 200, "installed": "trusted-summarizer", "rejection": null, "initialized": ["trusted-summarizer"]}
+  },
+  "artifact-unapproved": {
+    "risk": "LLM04:2026", "workflow": "plugin installation",
+    "input": {"plugin_id": "fixture-calendar", "args": "Fixture inventory report"},
+    "expected": {"status": 400, "installed": null, "rejection": "plugin not in vetted registry", "initialized": []}
+  },
+  "feedback-review": {
+    "risk": "LLM05:2026", "workflow": "review and retrieval of feedback",
+    "input": {
+      "question": "Which weekday is used for fixture inventory?",
+      "sources": [
+        {"id": "inventory-handbook", "review": "approved", "weekday": "Tuesday"},
+        {"id": "inventory-suggestion", "review": "unreviewed", "weekday": "Thursday"}
+      ]
+    },
+    "expected": {"weekday": "Tuesday", "source": "inventory-handbook"}
+  },
+  "citation-supported": {
+    "risk": "LLM07:2026", "workflow": "citation and stored fact",
+    "input": {
+      "note": {"title": "Fixture opening hours", "body": "The fixture desk opens at nine."},
+      "claim": "The fixture desk opens at nine.", "title": "Fixture opening hours"
+    },
+    "expected": {"status": 201, "returned": "verified", "stored": "verified", "claim_matches": true, "reference_matches": true}
+  },
+  "citation-unsupported": {
+    "risk": "LLM07:2026", "workflow": "citation and stored fact",
+    "input": {"claim": "The fixture desk opens at noon.", "title": "Unpublished schedule", "reference": "note:91000"},
+    "expected": {"status": 201, "returned": "unverified", "stored": "unverified", "claim_matches": true, "reference_matches": true}
+  },
+  "render-plain": {
+    "risk": "LLM10:2026", "workflow": "stored summary renderer",
+    "input": {"summary": "Fixture inventory is complete."},
+    "expected": {"status": 200, "text": ["Fixture inventory is complete."], "elements_in_summary": 0, "requests_from_page": []}
+  },
+  "render-markup": {
+    "risk": "LLM10:2026", "workflow": "stored summary renderer",
+    "input": {"summary": "<span title=\"A & B\">Fixture inventory</span>"},
+    "expected": {"status": 200, "text": ["<span title=\"A & B\">Fixture inventory</span>"], "elements_in_summary": 0, "requests_from_page": []}
+  },
+  "summary-baseline": {
+    "risk": "LLM01:2026", "workflow": "ordinary note summary baseline",
+    "input": {"note": {"title": "Fixture stockroom", "body": "The stockroom contains twelve tables."}},
+    "expected": {"status": 200, "includes_note": true, "raw_matches_visible": true, "saved_matches_visible": true}
+  },
+  "customer-redaction": {
+    "risk": "LLM02:2026", "workflow": "authorized customer details",
+    "input": {
+      "name": "Fixture Support Desk", "email": "desk@office.example", "phone": "+1-555-0108",
+      "masked_contact": "name=Fixture Support Desk email=d***@***.example phone=+1-***-0108"
+    },
+    "expected": {"status": 200, "provider_calls": 1, "masked_contact_in_context": true, "masked_contact_in_answer": true, "raw_contact_visible": false}
+  },
+  "calculator-dispatch": {
+    "risk": "LLM03:2026", "workflow": "authorized calculator action",
+    "input": {"action": "calc", "expression": "3 + 4"},
+    "expected": {"status": 200, "response": {"tool": "calc", "result": "calc: 3 + 4 = 7"}, "calculator_inputs": ["3 + 4"], "fetch_calls": 0}
+  },
+  "quota-rejection": {
+    "risk": "LLM06:2026", "workflow": "one-job quota with counting mock generator",
+    "input": {"prompt": "Fixture stockroom update"},
+    "expected": {"first_status": 200, "first_output": "Fixture completion", "second_status": 429, "calls_after_first": 1, "additional_calls_after_second": 0}
+  },
+  "chat-context": {
+    "risk": "LLM08:2026", "workflow": "ordinary chat context minimization",
+    "input": {"message": "What can the fixture assistant help with today?"},
+    "expected": {"status": 200, "provider_calls": 1, "received_user_question": true, "masked_context": true, "fixture_private_value_in_provider": false, "fixture_private_value_in_answer": false, "answer_present": true}
+  },
+  "tenant-retrieval": {
+    "risk": "LLM09:2026", "workflow": "tenant note retrieval",
+    "input": {"note": {"title": "Fixture stockroom inventory", "body": "Fixture stockroom inventory"}},
+    "expected": {"status": 200, "known_note_in_hits": true, "hit_tenants": ["acme"], "all_hits_owned_by_tenant": true}
+  }
+}

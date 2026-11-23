@@ -1,0 +1,3 @@
+200 application/json 42B
+---
+{"reference": "DEMO-24", "verified": true}

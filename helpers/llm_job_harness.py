@@ -219,6 +219,14 @@ def main():
     inspect.add_argument("file", type=pathlib.Path)
     inspect.add_argument("--reference", help="Check for literal text in a complete saved body")
     inspect.set_defaults(func=cmd_inspect)
+    if __package__:
+        from .saved_assertions import command as assess_saved
+    else:
+        from saved_assertions import command as assess_saved
+    assess = sub.add_parser("assess", help="Evaluate assertions on saved, correlated responses offline")
+    assess.add_argument("policy", type=pathlib.Path)
+    assess.add_argument("index", type=pathlib.Path)
+    assess.set_defaults(func=assess_saved)
     args = ap.parse_args()
     sys.exit(args.func(args) or 0)
 

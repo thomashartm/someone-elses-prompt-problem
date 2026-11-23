@@ -1,0 +1,16 @@
+{
+  "environment": "offline-fixture",
+  "backend": "recorded",
+  "model": "synthetic-example",
+  "requests_used": 2,
+  "records": {
+    "supported": {
+      "request_id": "saved-example/supported",
+      "file": "supported.txt"
+    },
+    "unsupported": {
+      "request_id": "saved-example/unsupported",
+      "file": "unsupported.txt"
+    }
+  }
+}
