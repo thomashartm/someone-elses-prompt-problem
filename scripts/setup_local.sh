@@ -59,7 +59,6 @@ PKG_BASE="$HOME/.pi/agent/npm/node_modules"
 PKGS=(
   "pi-subagents:controller -> hunter subagent delegation"
   "pi-opencode-go-cache:prompt caching for OpenCode Go models (dormant for venice)"
-  "pi-cache-optimizer:provider-generic prompt/cache-hit optimization + stats"
 )
 for entry in "${PKGS[@]}"; do
   PKG="${entry%%:*}"; DESC="${entry#*:}"

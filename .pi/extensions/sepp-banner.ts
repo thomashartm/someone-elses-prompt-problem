@@ -7,6 +7,7 @@
  * Non-TUI modes (print/json/rpc) are untouched.
  */
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { VERSION } from "@earendil-works/pi-coding-agent";
 
 // hotkey suffix for the hint line — mirrors sepp-menu.ts env contract
@@ -39,7 +40,7 @@ export default function sepBannerExtension(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		if (ctx.mode !== "tui" || typeof ctx.ui?.setHeader !== "function") return;
 		ctx.ui.setHeader((_tui: unknown, theme: Theme) => ({
-			render(_width: number): string[] {
+			render(width: number): string[] {
 				const mark = sepWordmark(theme);
 				// right column, aligned to the 5 wordmark rows
 				const side: string[][] = [
@@ -75,7 +76,7 @@ export default function sepBannerExtension(pi: ExtensionAPI) {
 					theme.fg("muted", "  \u00b7  start here \u2014 capability menu  \u00b7  ctrl+o full help") +
 					theme.fg("dim", `  \u00b7 SEPP embeds pi (hotkey alt+g${MENU_KEY_SUFFIX})`),
 				);
-				return lines;
+				return lines.map(line => truncateToWidth(line, width));
 			},
 			invalidate() {},
 		}));

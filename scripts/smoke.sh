@@ -12,16 +12,12 @@ for t in caido-cli caido-mcp-server pi ffuf jwt jq; do
     || { say "binary $t" "MISSING"; fail=1; }
 done
 
-# 2. Caido reachable
-curl -sf -m 3 -X POST "${CAIDO_URL:-http://127.0.0.1:8080}/graphql" \
-  -H 'Content-Type: application/json' -d '{"query":"{ __typename }"}' \
-  | grep -q QueryRoot && say "caido graphql" OK || { say "caido graphql" UNREACHABLE; fail=1; }
-
-# 3. Caido auth usable? (non-fatal: only needed for history/findings push)
-tok=""
-[ -n "${CAIDO_ACCESS_TOKEN:-}" ] && tok="$CAIDO_ACCESS_TOKEN"
-[ -z "$tok" ] && ls "$HOME/.caido-mcp/tokens/"*.json >/dev/null 2>&1 && tok=SET
-[ -n "$tok" ] && say "caido auth token" FOUND || say "caido auth token" "absent - run: caido-mcp-server login"
+if python3 "$DIR/scripts/check_caido.py"; then
+  say "Caido CLI authentication and instance" OK
+else
+  say "Caido CLI authentication and instance" UNAVAILABLE
+  fail=1
+fi
 
 # Caido CA bundle for proxied TLS (regenerate if stale/missing)
 python3 "$DIR/scripts/export_ca.py" >/dev/null 2>&1 \

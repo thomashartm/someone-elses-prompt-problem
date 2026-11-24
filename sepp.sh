@@ -43,21 +43,8 @@ export VENICE_API_KEY
 mkdir -p "$ROOT/data/tmp" "$ROOT/data/reports" "$ROOT/data/targets" "$ROOT/data/workspaces" "$ROOT/data/spool"
 
 # --- 3. Caido running + accessible? -------------------------------------------
-CAIDO_URL_EFFECTIVE="${CAIDO_URL:-http://127.0.0.1:8080}"
-if ! curl -sf -m 3 -X POST "$CAIDO_URL_EFFECTIVE/graphql" \
-     -H 'Content-Type: application/json' -d '{"query":"{ __typename }"}' \
-     | grep -q QueryRoot; then
-  die "Caido not reachable at $CAIDO_URL_EFFECTIVE - start the Caido desktop app (proxy + GraphQL) and rerun"
-fi
-log "caido answering at $CAIDO_URL_EFFECTIVE"
-
-CAIDO_STATUS="$(CAIDO_URL="$CAIDO_URL_EFFECTIVE" caido-cli status 2>&1 || true)"
-if grep -q "Auth: OK" <<< "$CAIDO_STATUS"; then
-  log "caido auth OK ($(grep -o 'expires[^,]*' <<< "$CAIDO_STATUS" | head -1))"
-else
-  warn "caido auth not usable (${CAIDO_STATUS//$'\n'/; })"
-  warn "run: CAIDO_URL=$CAIDO_URL_EFFECTIVE caido-mcp-server login"
-fi
+python3 "$ROOT/scripts/check_caido.py" || die "Caido CLI preflight failed"
+log "Caido CLI authentication and instance OK"
 
 python3 "$ROOT/scripts/export_ca.py" >/dev/null 2>&1 \
   || warn "could not export Caido CA - proxied-TLS curl calls will fail until fixed"

@@ -30,6 +30,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
+import { showReader } from "../lib/reader.ts";
+import { requireCaido } from "../lib/caido.ts";
 import { Type } from "typebox";
 
 const REPO = process.cwd();
@@ -532,7 +534,7 @@ export default function sepRedteamExtension(pi: ExtensionAPI) {
 			// Bare /hunt or /hunt status → show status in the command output (persistent),
 			// not just a toast. FIX: upstream relied on ~2s toasts and had no else-branch.
 			if (parts.length === 0 || parts[0] === "status") {
-				await ctx.ui.notify(statusLines(state, ledgerPath).join("\n"), "info");
+				await showReader(ctx, "SEPP status", statusLines(state, ledgerPath).join("\n"));
 				renderWidget();
 				return;
 			}
@@ -545,6 +547,7 @@ export default function sepRedteamExtension(pi: ExtensionAPI) {
 					await ctx.ui.notify(`Usage: /hunt ${parts[0]} <url>`, "warning");
 					return;
 				}
+				if (!await requireCaido(pi, ctx)) return;
 				const notes = rest.replace(url, "").trim();
 				state = freshState(url);
 				pinnedDir = ""; // re-resolve: a workspace may exist by now
