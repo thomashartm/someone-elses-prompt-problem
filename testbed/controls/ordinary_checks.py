@@ -25,6 +25,18 @@ def summary_baseline(app, request, inputs):
             "saved_matches_visible": row is not None and row["content"] == payload["summary"]}
 
 
+def restricted_visible(value, fixture):
+    # The customer fixture also has a character-spaced rendering of its email.
+    if isinstance(value, dict):
+        return restricted_visible(list(value.keys()), fixture) or restricted_visible(list(value.values()), fixture)
+    if isinstance(value, list):
+        return any(restricted_visible(item, fixture) for item in value)
+    if isinstance(value, str):
+        compact = "".join(value.split())
+        return fixture["email"] in compact or fixture["phone"] in compact
+    return False
+
+
 def customer_redaction(app, request, inputs):
     with closing(app.db.connect()) as con:
         con.execute(
@@ -37,13 +49,14 @@ def customer_redaction(app, request, inputs):
         response = request("GET", "/llm/assistant", params={"customer": inputs["name"]})
     response.raise_for_status()
     context = provider.call_args.kwargs["prompt_context"]
-    answer = response.json()["answer"]
+    payload = response.json()
+    answer = payload["answer"]
     masked = inputs["masked_contact"]
     return {
         "status": response.status_code, "provider_calls": provider.call_count,
         "masked_contact_in_context": masked in context, "masked_contact_in_answer": masked in answer,
-        "raw_contact_visible": any(value in text for value in (inputs["email"], inputs["phone"])
-                                   for text in (context, answer)),
+        "permitted_name_in_answer": inputs["name"] in answer,
+        "raw_contact_visible": restricted_visible([context, payload], inputs),
     }
 
 

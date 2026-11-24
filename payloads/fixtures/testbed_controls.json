@@ -54,7 +54,7 @@
       "name": "Fixture Support Desk", "email": "desk@office.example", "phone": "+1-555-0108",
       "masked_contact": "name=Fixture Support Desk email=d***@***.example phone=+1-***-0108"
     },
-    "expected": {"status": 200, "provider_calls": 1, "masked_contact_in_context": true, "masked_contact_in_answer": true, "raw_contact_visible": false}
+    "expected": {"status": 200, "provider_calls": 1, "masked_contact_in_context": true, "masked_contact_in_answer": true, "permitted_name_in_answer": true, "raw_contact_visible": false}
   },
   "calculator-dispatch": {
     "risk": "LLM03:2026", "workflow": "authorized calculator action",

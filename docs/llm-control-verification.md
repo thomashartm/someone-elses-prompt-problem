@@ -68,3 +68,5 @@ Inapplicability requires an explicit exception in the policy and a recorded reas
 The fixture report distinguishes ten risk categories, thirteen cases and the application boundaries actually observed. Feedback review is inapplicable on the mock because its schema lacks an admission state. The summary case verifies a note baseline. Aderis document handling still requires the original attachment and its completed application result. Shared-dev runs have their own evidence and approval requirements. [Program issue #61](https://github.com/thomashartm/someone-elses-prompt-problem/issues/61)
 
 For #50, use the [document summary verifier](../testbed/summary-format.md) to score the closing quotation and retained business fact for each original attachment.
+
+For #51, the [customer redaction checks](../testbed/redaction.md) cover the ordinary customer response, streamed text and tool blocks, conversation replay, and the completed saved transcript.

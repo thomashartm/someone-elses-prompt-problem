@@ -14,7 +14,7 @@ The run uses a freshly seeded temporary SQLite database and FastAPI’s in-proce
 | Mock fixture (2025) | Program issue (2026) | Evidence |
 |---|---|---|
 | LLM01 | LLM01 / #50 | The ordinary note summary includes the fixture text, and raw mock output, visible summary and persisted content match. This is the note-summary baseline. |
-| LLM02 | LLM02 / #51 | An authorized synthetic customer read exposes the masked contact in the provider context and the complete response. This route has no streamed or saved answer. |
+| LLM02 | LLM02 / #51 | An authorized synthetic customer read exposes the masked contact in the provider context and the complete response. This route has no streamed or saved answer. [Redaction results and Aderis capture checks](../redaction.md) |
 | LLM06 | LLM03 / #52 | The authorized calculator receives the requested addition exactly once and the fetch tool receives zero calls. |
 | LLM03 | LLM04 / #53 | Approved plugin ID reaches the real initialization hook. The unapproved ID receives the registry rejection and zero hook calls. |
 | LLM04 | LLM05 / #54 | Two synthetic sources give different inventory weekdays and carry distinct review states. The mock has no review state or review-based admission step, so this case is inapplicable. |
