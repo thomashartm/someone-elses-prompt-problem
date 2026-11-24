@@ -51,6 +51,9 @@ Priorities for API-with-behind-DB + OAuth + LLM jobs (highest signal first):
 
 1. **Scope**: before ANY request toward a host, check it is expected. If in doubt,
    ask the operator. Never touch hosts outside the delegated target.
+   All traffic to a target must go through Caido so the operator can observe and
+   control it. If Caido becomes unavailable, stop sending target requests.
+   Never retry directly or use a tool that bypasses the proxy.
 2. **Rate budget**: max 50 requests per burst; pause ≥1s between batches; stop
    immediately on signs of degradation (timeouts, 5xx storms).
 3. **Destructive probing**: state-changing experiments (DELETE, role changes, job

@@ -16,6 +16,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 import * as fs from "node:fs";
+import { showReader } from "../lib/reader.ts";
+import { requireCaido } from "../lib/caido.ts";
 
 const REPO = process.cwd(); // pi runs from the repo root (sepp.sh cds there)
 const SCRIPTS = `${REPO}/scripts`;
@@ -44,18 +46,7 @@ function firstUrl(text: string): string | undefined {
 
 export default function huntExtension(pi: ExtensionAPI) {
 	const preflight = async (ctx: any): Promise<{ ok: boolean; tokenNote: string }> => {
-		// 1. Caido reachable
-		const caido = await run(pi, "curl", [
-			"-sf", "-m", "3", "-X", "POST",
-			`${process.env.CAIDO_URL ?? "http://127.0.0.1:8080"}/graphql`,
-			"-H", "Content-Type: application/json",
-			"-d", '{"query":"{ __typename }"}',
-		]);
-		if (caido.code !== 0 || !caido.stdout.includes("QueryRoot")) {
-			await ctx.ui.notify("Caido not answering on :8080 — history/replay will fail", "warning");
-			const cont = await ctx.ui.confirm("Caido down", "Start the hunt anyway?");
-			if (!cont) return { ok: false, tokenNote: "aborted: caido down" };
-		}
+		if (!await requireCaido(pi, ctx)) return { ok: false, tokenNote: "Caido unavailable" };
 
 		// 2. Token freshness gate
 		const hv = await run(pi, "python3", [`${SCRIPTS}/harvest_target.py`]);
@@ -229,6 +220,12 @@ export default function huntExtension(pi: ExtensionAPI) {
 		}
 	});
 
+	pi.on("input", async (event, ctx) => {
+		if (/^\s*(?:target\s*:|https?:\/\/)/i.test(event.text) && !await requireCaido(pi, ctx)) {
+			return { action: "handled" };
+		}
+	});
+
 	// Also catch targets stated in plain prompts (before_agent_start sees all).
 	pi.on("before_agent_start", async (event, ctx) => {
 		const anyEv = event as any;
@@ -293,11 +290,16 @@ export default function huntExtension(pi: ExtensionAPI) {
 		spoolCtx.ui.notify(`SEPP declared: ${drops.length === 1 ? drops[0].url : drops.length + " requests"}`, "info");
 	}
 
+	async function drainReadySpool() {
+		if (!spoolCtx || !fs.readdirSync(SPOOL_DIR).some(f => !f.startsWith(".") && f.endsWith(".json"))) return;
+		if (await requireCaido(pi, spoolCtx)) deliverDrops(readSpool());
+	}
+
 	function drainSpoolSoon() {
 		if (spoolTimer) clearTimeout(spoolTimer);
 		spoolTimer = setTimeout(() => {
 			spoolTimer = undefined;
-			deliverDrops(readSpool());
+			void drainReadySpool().catch(e => console.error("[hunt] spool unavailable:", e));
 		}, 300); // debounce: coalesce multi-select bursts
 	}
 
@@ -308,8 +310,7 @@ export default function huntExtension(pi: ExtensionAPI) {
 			fs.mkdirSync(SPOOL_DIR, { recursive: true });
 			fs.watch(SPOOL_DIR, drainSpoolSoon);
 			spoolWatchStarted = true;
-			const leftovers = readSpool(); // recover drops missed while pi was closed
-			if (leftovers.length) deliverDrops(leftovers);
+			drainSpoolSoon();
 		} catch (e) {
 			console.error("[hunt] spool watcher failed:", e);
 		}
@@ -397,62 +398,6 @@ export default function huntExtension(pi: ExtensionAPI) {
 	pi.registerCommand("hunt-brief", sepBriefCmd);
 	pi.registerCommand("sepp-brief", { ...sepBriefCmd, description: `Alias of /hunt-brief` });
 
-	// ---------------------------------------------------------- reader dialog
-	// Bright, scrollable full-text viewer (notify() only has dim info-tone
-	// styling — operator complained about grey walls of status text).
-	// Headers ("## ...") get accent+bold; everything else renders in the
-	// terminal default color. Scroll: ↑↓/j/k/PgUp/PgDn/G, close: q/Esc/Enter.
-	async function showReader(ctx: any, title: string, body: string) {
-		if (typeof ctx?.ui?.custom !== "function") {
-			await ctx?.ui?.notify?.(body.slice(0, 900), "info");
-			return;
-		}
-		await ctx.ui.custom((_tui: unknown, theme: import("@earendil-works/pi-coding-agent").Theme, _kb: unknown, done: () => void) => {
-			const PAGE = 20;
-			let offset = 0;
-			let flatLen = 1;
-			return {
-				render(width: number) {
-					const inner = Math.max(40, width - 4);
-					const flat: string[] = [];
-					for (const raw of body.split("\n")) {
-						let s = raw.replace(/\t/g, "  ");
-						while (s.length > inner) {
-							flat.push(s.slice(0, inner));
-							s = s.slice(inner);
-						}
-						flat.push(s);
-					}
-					flatLen = flat.length;
-					offset = Math.min(Math.max(0, offset), Math.max(0, flatLen - PAGE));
-					const out: string[] = [];
-					out.push(theme.fg("accent", theme.bold(title)));
-					out.push("");
-					for (const line of flat.slice(offset, offset + PAGE)) {
-						if (line.startsWith("## ")) out.push(theme.fg("accent", theme.bold(line.slice(3))));
-						else out.push(line); // body + tables: terminal default (bright)
-					}
-					out.push("");
-					out.push(theme.fg("muted", `lines ${offset + 1}–${Math.min(offset + PAGE, flatLen)}/${flatLen} · ↑↓/j/k PgUp/PgDn/G scroll · q/Esc close`));
-					return out;
-				},
-				invalidate() {},
-				handleInput(data: string) {
-					if (data === "\x1b" || data === "q" || data === "\r" || data === "\n") { done(); return; }
-					const scroll = (delta: number) => {
-						offset = Math.min(Math.max(0, offset + delta), Math.max(0, flatLen - PAGE));
-					};
-					if (data === "\x1b[A" || data === "k") scroll(-1);
-					else if (data === "\x1b[B" || data === "j") scroll(1);
-					else if (data === "\x1b[5~") scroll(-PAGE); // PgUp
-					else if (data === "\x1b[6~") scroll(PAGE); // PgDn
-					else if (data === "g") offset = 0;
-					else if (data === "G") offset = Math.max(0, flatLen - PAGE);
-				},
-			};
-		});
-	}
-
 	// ------------------------------------------------------------ hunter board
 	// Live roster of ALL hunters (whatever launched them): each hunter
 	// heartbeats data/hunters/<name>.json via scripts/hunter_board.py; we poll
@@ -536,7 +481,7 @@ export default function huntExtension(pi: ExtensionAPI) {
 				const marker = r.state === "stopping" ? "⏹" : r.state === "active" ? "●" : r.state === "quiet" ? "○" : "✓";
 				return `${marker} ${r.name}  [${r.state}]  ${r.phase ?? "?"}  ${(r.activity ?? "").slice(0, 50)}  (${r.ageMin ?? "?"}m)`;
 			});
-			const picked = await ctx.ui.select("SEPP hunters — pick one for details", [...lines, "CLOSE"]);
+			const picked = await ctx.ui.select("Hunters · Esc closes", ["CLOSE", ...lines]);
 			if (!picked || picked === "CLOSE") return;
 			const name = (picked.match(/^\S+ (\S+)/) ?? [])[1];
 			const det = await run(pi, "python3", [`${SCRIPTS}/hunter_board.py`, "get", name]);
@@ -647,7 +592,7 @@ export default function huntExtension(pi: ExtensionAPI) {
 					const more = targets.length > 1 ? ` (+${targets.length - 1})` : "";
 					return `${w.updated_at || "?"}  [${w.status}]  ${w.id}  ${t0}${more}  (${w.size_kb} KB)`;
 				});
-				const picked = await ctx.ui.select("Hunt sessions — pick one for details", [...lines, "CLOSE"]);
+				const picked = await ctx.ui.select("Sessions · Esc closes", ["CLOSE", ...lines]);
 				if (!picked || picked === "CLOSE") return;
 				const idx = lines.indexOf(picked);
 				const ws = items[idx >= 0 ? idx : 0];

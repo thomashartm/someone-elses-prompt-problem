@@ -14,6 +14,7 @@
  */
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
+import { showReader } from "../lib/reader.ts";
 import * as path from "node:path";
 
 // Repo root resolved from THIS file's location (.pi/extensions/x.ts → ../..)
@@ -71,7 +72,7 @@ export default function sepMenuExtension(pi: ExtensionAPI) {
 
 	async function picker(ctx: ExtensionContext, title: string, items: { label: string; hint?: string }[]): Promise<number | undefined> {
 		const lines = items.map((i) => (i.hint ? `${i.label}  —  ${i.hint}` : i.label));
-		const picked = await ctx.ui.select(title, [...lines, "CANCEL"]);
+		const picked = await ctx.ui.select(`Esc closes · ${title}`, [...lines, "CANCEL"]);
 		if (!picked || picked === "CANCEL") return undefined;
 		const idx = lines.indexOf(picked);
 		return idx >= 0 ? idx : undefined;
@@ -144,7 +145,7 @@ export default function sepMenuExtension(pi: ExtensionAPI) {
 					await c.ui.notify("make setup running…", "info");
 					const out = await runPi(pi, "make", ["setup"], 300_000);
 					const tail = out.trim().split("\n").slice(-14).join("\n");
-					await c.ui.notify(`make setup finished:\n${tail || "(no output)"}`, "info");
+					await showReader(c, "Setup output", tail || "(no output)");
 				},
 			},
 			{
@@ -159,9 +160,8 @@ export default function sepMenuExtension(pi: ExtensionAPI) {
 						"helpers/findings.py — findings ledger (Caido-backed)",
 						"drivers/transport.py + adapter contract — garak stack",
 					];
-					await c.ui.notify(
+					await showReader(c, "Tool integration",
 						[`Loaded pi tools (${tools.length}):`, ...(tools.length ? [tools.join(", ")] : ["(none reported)"]), "", "SEPP toolchain:", ...sepp.map((s) => `• ${s}`)].join("\n"),
-						"info",
 					);
 				},
 			},

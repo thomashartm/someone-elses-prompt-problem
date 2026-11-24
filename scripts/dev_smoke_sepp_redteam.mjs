@@ -20,7 +20,7 @@ const pi = {
 	sendUserMessage: async (m) => log("sendUserMessage ▶", m.split("\n")[0]),
 	events: { emit() {}, on() {} },
 	setActiveTools() {}, getAllTools: () => [], getActiveTools: () => [],
-	exec: async () => ({ stdout: "", stderr: "", code: 0 }),
+	exec: async (_cmd, args) => ({ stdout: "", stderr: "", code: args[0]?.endsWith("/check_caido.py") ? 0 : 1 }),
 };
 
 	ext(pi);
