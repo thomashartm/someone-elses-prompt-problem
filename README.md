@@ -4,155 +4,193 @@
 
 # SEPP (Someone Else's Prompt Problem)
 
-SEPP (Someone Else's Prompt Problem) is an agentic security-testing stack for **LLM-enabled APIs**.
+SEPP is an agentic security-testing stack for **LLM-enabled APIs**, targeting the **OWASP Top 10 for LLM Applications (2025/2026)** plus classic API weaknesses (BOLA/IDOR, JWT/OAuth, injection, mass assignment).
 
-It targets the **OWASP Top 10 for LLM Applications** (prompt injection, sensitive data/system-prompt disclosure, insecure output handling, excessive agency, model DoS, etc.) alongside classic API weaknesses (BOLA/IDOR, JWT/OAuth flaws, injection, mass assignment). 
-An autonomous controller and supported by a team of hunter agents drive **Caido** through `caido-cli` and run **NVIDIA garak** probes through a target-blind OpenAI shim, reusing your authenticated browser sessions in Caido and proving every finding with reproduced before/after request pairs.
+A controller agent delegates hunt legs to hunter subagents. All target traffic flows through **Caido** (`caido-cli`), reusing your authenticated browser sessions from proxy history, and every finding is backed by a reproduced before/after request pair. NVIDIA **garak** probes reach non-standard endpoints through a target-blind OpenAI shim; application-layer controls are verified by deterministic batteries against the bundled vulnerable testbed.
 
 ```
 operator ──delegates URL / Caido right-click──▶ pi controller ──▶ hunter subagents
                                                    │
-                                                   ├── caido-cli       history, replay, batch sweeps
-                                                   ├── helpers/*       findings, JWT, OAuth, LLM job harness
-                                                   └── NVIDIA garak ──▶ OpenAI shim (drivers/openai_shim.py)
+                                                   ├── caido-cli        history, replay, batch sweeps
+                                                   ├── helpers/*        findings, JWT, OAuth, LLM job harness
+                                                   ├── garak battery ──▶ OpenAI shim (drivers/openai_shim.py)
+                                                   └── exploit battery ─▶ testbed / target routes
                                                                             ▼ (all traffic proxied)
                                                                       Caido :8080 ◀── browser session (auth)
 ```
 
 ## Disclaimer
 
-> **For educational and authorized security testing only.**
->
-> This repository is provided for educational purposes and must only be used to test and validate your own applications (or systems for which you have explicit, written authorization). The author is not responsible or liable for any misuse, unauthorized testing, or damage resulting from the use of this software.
+> **For educational and authorized security testing only.** Use only against your own applications or systems for which you have explicit, written authorization. The author is not responsible for misuse, unauthorized testing, or damage.
 
 ## Requirements
 
-- **Caido** running locally on `127.0.0.1:8080` ([caido.io](https://caido.io))
-- **Caido CLI & MCP** (`caido-cli`, `caido-mcp-server`)
-- **Node.js ≥ 20**, **Python 3**, **uv**
-- **Security-capable LLM API key** — the driving agent needs a model that will execute offensive security tasks without refusing. Tested models on Venice:
+- **Caido** on `127.0.0.1:8080` ([caido.io](https://caido.io)) with **caido-cli** and **caido-mcp-server**
+- **Python** — ≥ 3.12 for the garak venv (`garak 0.17.x` will not install on older interpreters); ≥ 3.10 for the control fixtures (`testbed/controls`)
+- **Node.js ≥ 20**, **uv**, **Docker** (testbed)
+- **Driving LLM API key** — the agent needs a model that executes offensive-security tasks without refusing. Tested on Venice (IDs must match `sepp.sh`):
 
-  | Model | Venice model ID |
+  | Preset | Venice model ID |
   |---|---|
-  | GLM 5.3 Uncensored | `glm-5-3-flash-uncensored` |
-  | DeepSeek 4.1 Uncensored | `deepseek-4_1-uncensored` |
+  | default | `glm-5-3-flash-uncensored` |
+  | `deepseek` | `deepseek-v4-1-flash-uncensored` |
+  | `go` | `deepseek-v4-flash` (override: `SEPP_GO_MODEL`) |
 
 ## Setup
 
-Run the idempotent local installer:
-
 ```bash
-make setup
+make setup          # idempotent: prerequisites, pi/caido CLIs, plugin build, CA export,
+                    # garak venv (.venv-garak, versions pinned in requirements-garak.txt), smoke test
 ```
-
-This checks prerequisites, installs `pi`, `caido-cli`, and `caido-mcp-server`, builds the SEPP Caido plugin (`plugins/sepp/dist/plugin_package.zip`), symlinks the `sepp` CLI into `~/.local/bin`, exports the Caido CA certificate, provisions the **NVIDIA garak** venv (`.venv-garak/`), and runs a smoke test.
 
 After `make setup`:
 
-1. **Authenticate Caido CLI/MCP** (tokens expire periodically; re-run on auth errors):
+1. Authenticate the Caido CLI/MCP (re-run on auth errors):
    ```bash
    CAIDO_URL=http://127.0.0.1:8080 caido-mcp-server login
    caido-cli status -u http://127.0.0.1:8080
    ```
-2. **Install the Caido plugin**: in Caido, go to **Plugins → Install from file** and select `plugins/sepp/dist/plugin_package.zip`.
-3. **Configure `.env`**: run `./sepp.sh` once to generate `.env`, then set `VENICE_API_KEY`.
-4. **Capture auth**: log into your target application in a browser proxied through Caido. Agents harvest tokens/cookies from proxy history — you do not need to paste secrets.
+2. Install the Caido plugin: **Plugins → Install from file** → `plugins/sepp/dist/plugin_package.zip`.
+3. Run `./sepp.sh` once to generate `.env`, then set `VENICE_API_KEY`.
+4. Capture auth: log into the target application in a browser proxied through Caido. Hunters harvest tokens/cookies from proxy history — never paste secrets.
+
+`sepp.sh` also repairs stale `.venv-garak/bin` shebangs after repo moves (renames bake absolute paths into entry scripts).
 
 ## Usage
 
-Start a controller session:
-
 ```bash
-./sepp.sh                # default: GLM 5.3 flash uncensored (Venice)
-./sepp.sh deepseek       # DeepSeek 4.1 uncensored (Venice)
-./sepp.sh go             # OpenCode Go model (SEPP_GO_MODEL, prompt-cached)
-./sepp.sh --check        # verify plumbing without launching pi
+./sepp.sh            # default model
+./sepp.sh deepseek   # DeepSeek preset
+./sepp.sh go         # OpenCode Go model (SEPP_GO_MODEL)
+./sepp.sh --check    # verify plumbing without launching pi
 ```
 
-Send a target to the agent either in chat (`target: https://api.example.com/v2/chat`) or by right-clicking a request in Caido HTTP History → **SEPP: send to Hunt**.
+Delegate a target in chat (`target: https://api.example.com/v2/chat`) or right-click a request in Caido HTTP History → **SEPP: send to Hunt**. The controller orients on history, plans, and verifies evidence; background hunters probe. State-changing probes escalate to you first.
 
-The main session acts as the **controller** (orients on Caido history, plans, verifies evidence, reports) and delegates hands-on probing to background **hunter** subagents. 
-Potentially destructive or state-changing probes escalate to you for approval.
-
-### Session commands
+### Session commands (registered in `.pi/extensions/`)
 
 | Command | Purpose |
 |---|---|
-| `option+g` / `alt+g` / `/menu` | Capability hub: prompt templates, hunt starters, board/brief shortcuts, toolchain check |
-| `/hunt` | Show current hunt status and target ledger |
-| `/hunt start <url>` | Arm the findings and phase ledger for a target |
-| `/hunt here <url> [notes]` | Run a hunt directly in the current session with ledger tracking |
-| `/hunt phase <name>` | Set phase (`orient`, `map`, `hypothesize`, `prove`, `record`, `report`) |
-| `/hunt report` | Export the ledger to `data/reports/sepp-redteam-<ts>.md` |
-| `/hunters` | Live hunter board (status, phase, workspace, latest evidence) |
-| `/hunt-abort [<name>\|all]` | Cooperatively stop a hunter (or force-stop all) |
-| `/hunt-status [workspace]` | Generate a deterministic status report directly from disk (`/sepp-status`) |
-| `/hunt-brief [show]` | Synthesize an interpreted brief with recommendations (`/sepp-brief`) |
-| `/sessions` | Inspect workspaces, evidence files, and report tails (`/sepps`) |
+| `/menu` | Capability hub: prompt templates, hunt starters, toolchain check |
+| `/hunt` | Current hunt status and ledger |
+| `/hunt-start <url>` · `/sepp` | Arm the findings/phase ledger for a target |
+| `/hunt-scope <url-or-path>` · `/sepp-scope` | Set the delegated target scope |
+| `/hunt-resume` · `/hunt-refresh` | Resume or reload a hunt ledger |
+| `/hunt-status` · `/sepp-status` | Deterministic status report from disk |
+| `/hunt-brief [show]` · `/sepp-brief` | Interpreted brief with recommendations |
+| `/hunt-abort [<name>\|all]` · `/sepp-abort` | Cooperatively stop hunters |
+| `/hunters` | Live hunter board (status, phase, workspace, evidence) |
+| `/findings` | Current findings ledger |
+| `/sessions` · `/sepps` | Inspect workspaces, evidence files, report tails |
 
-Outside `pi`: `python3 scripts/hunter_board.py list` shows live hunter state.
+Outside `pi`: `python3 scripts/hunter_board.py list`.
 
-## OWASP LLM Top 10 & NVIDIA garak
+## Testing capabilities
 
-SEPP tests LLM-enabled APIs using two complementary paths:
+### 1. Exploit playbooks (OWASP LLM Top 10, 2025 numbering)
 
-1. **Automated scanning with NVIDIA garak**: custom or non-standard LLM endpoints are wrapped by a per-target adapter (`data/targets/<slug>/adapter.py`, contract in `drivers/ADAPTER_CONTRACT.md`) and exposed through the local OpenAI-compatible shim (`drivers/openai_shim.py`). All garak probes flow through the paced Caido proxy transport (`drivers/transport.py`).
-   ```bash
-   python3 scripts/check_adapters.py <slug>   # offline adapter validation
-   TARGET=<slug> scripts/run_garak_canary.sh  # run a single-probe garak canary via the shim
-   ```
+`docs/exploits/` — one hands-on playbook per risk (LLM01–LLM10), every command fact-checked against the testbed; companion payload lists in `payloads/`.
 
-   The canary uses the selected adapter’s default model. If both `TARGET` and `CAIDO_TARGET` are set, they must agree. The default testbed uses its existing credential refresh and calibration probe. Other configured targets use their provisioned baseline and a single “Reply with OK” smoke request. The wrapper checks any recorded token expiry and verifies the running shim’s target and model before sending the request.
+### 2. Application exploit battery — deterministic, tier-aware
 
-   Direct garak runs use `.venv-garak/bin/garak` with narrow probe subsets (e.g. `-p dan,promptinject`) to respect rate limits.
-2. **Targeted API & LLM job probing**: `helpers/llm_job_harness.py` runs config-driven payload matrices against LLM job endpoints, while `helpers/jwt_tools.py`, `helpers/oauth_flow.py`, and `caido-cli batch` cover auth, BOLA, and injection around the model.
-
-## Local OWASP LLM Top 10 Testbed
-
-The repo includes a local deliberately vulnerable FastAPI app (`testbed/`) with routes mapped to **OWASP LLM01–LLM10** and configurable guard tiers (`off` / `naive` / `strict`) for validating hunters, adapters, and garak probes:
+`scripts/exploit_battery.py` replays all ten exploits against the testbed at `naive` and `strict` guard tiers, reseeding between tiers and grading each observation against `testbed/EXPECTATIONS.md`; `--with-exfil-rig` adds a real headless-Chrome exfiltration proof (canary listener + rendered-markup execution, `--assert-absent` verdict at strict).
 
 ```bash
-make testbed-up       # start on 127.0.0.1:8765
-make testbed-seed     # seed accounts & traffic through Caido
-make testbed-verify   # run the off/naive/strict expectation matrix
-make testbed-canary   # run the garak canary against the testbed
-make testbed-down     # stop stack
+make llm-exploits    # full battery incl. exfil rig; JSON report in data/reports/
 ```
 
-See `testbed/README.md` for seeded credentials and environment knobs.
+### 3. Model-layer garak battery — profiled, budget-enforced
 
-## Operating Rules
+`scripts/garak_battery.py` runs `configs/garak_profiles.json` probe profiles (selected **by name**, never `owasp:*` tags) through the OpenAI shim. Preflight census enforces request ceilings (smoke 12, core 414, full 628) **before any traffic**; reports count distinct provider requests and feed `scripts/llm_gate.py` policies (pass/fail/blocked verdicts, fitted calibration plus negative-control validation).
 
-- **Scope**: only touch explicitly delegated hosts.
-- **Rate limits**: max 50 requests per burst with pauses between batches; stop on 5xx storms or timeouts.
-- **Approvals**: destructive or state-changing probes require explicit operator confirmation.
-- **Evidence & hygiene**: findings require reproduced request pairs (`caido-cli request <id>`); secrets are never printed in reports or chat.
+```bash
+python3 scripts/garak_battery.py --profile smoke --dry-run   # budget census only
+SEPP_RATE_PAUSE=2 python3 scripts/garak_battery.py --profile core
+python3 scripts/llm_gate.py <policy.json> <report.json> --profile smoke
+```
 
-## Repository Layout
+Single-probe canary: `make testbed-canary` (identity-checked shim + `dan.DAN_Jailbreak`, report verified by `scripts/verify_garak_report.py`).
+
+### 4. Targeted API & LLM job probing
+
+`helpers/llm_job_harness.py` — config-driven payload matrices with `expect {status, contains, absent}` verdicts, response-size discipline (truncated bodies can never pass `absent`), write-method gating, and optional Caido request-id attachment. Around the model: `helpers/jwt_tools.py`, `helpers/oauth_flow.py`, `helpers/discover.sh`, `caido-cli batch`.
+
+### 5. Exfiltration proof rig
+
+`scripts/canary_listener.py` (fixed-port loopback journal), `drivers/headless_render.py` (Chrome via Caido), `scripts/prove_exfil.py` (listener-verdict + DOM evidence, `--assert-absent` for strict tiers). Unit-tested offline in `scripts/test_exfil_rig.py`.
+
+## Local OWASP LLM testbed
+
+A deliberately vulnerable FastAPI app (`testbed/`) with routes mapped to LLM01–LLM10 and guard tiers `off` / `naive` / `strict`:
+
+```bash
+make testbed-up        # start on 127.0.0.1:8765
+make testbed-seed      # seed accounts & traffic through Caido
+make testbed-reseed    # down -v + up (fresh marker, fresh seed data)
+make testbed-verify    # full off/naive/strict expectation matrix
+make testbed-canary    # garak canary via the shim
+make testbed-down      # stop stack
+```
+
+Credentials and knobs: `testbed/README.md`. Control verification workflow (incl. Ollama `qwen2.5:7b` runs and the application gate): `make llm-smoke`, `make llm-battery LLM_PROFILE=core`, documented in `docs/llm-control-verification.md`. Current program status and remaining work: `ROADMAP.md`; risk-to-issue traceability: `docs/llm-2026-acceptance-map.md`.
+
+## Target onboarding
+
+Non-testbed endpoints are wrapped per target under `data/targets/<slug>/`:
+
+```bash
+python3 scripts/onboard_target.py wire --slug <slug> --url <url> [--dialect json|sse] [--from-request <caido-id>]
+python3 scripts/check_adapters.py <slug>                     # offline adapter validation
+TARGET=<slug> scripts/run_garak_canary.sh                    # provisioned credentials required
+python3 scripts/harvest_target.py --slug <slug>              # refresh session from Caido history
+```
+
+Adapters implement `drivers/ADAPTER_CONTRACT.md` (`build_body` / `parse` / `default_model`). Conversation policy for the shim: `SEPP_SHIM_CONV=fresh|reuse` (+ `SEPP_SHIM_CONV_MAX_TURNS`, default 10) — `reuse` continues threads for multi-turn probes and is **serial-runs only**. Rotating sessions: `chat_turn` retries once on 401/sessionExpired when credentials rotated on disk.
+
+## Environment variables
+
+| Variable | Meaning |
+|---|---|
+| `CAIDO_TARGET` | target slug under `data/targets/` (default `testbed`) |
+| `CAIDO_URL` / `CAIDO_PROXY` / `CAIDO_DATA_DIR` | Caido instance, proxy, data root (default `./data`) |
+| `SEPP_RATE_PAUSE` | inter-request pause override (env > `target.json rate_pause_s` > 10 s default) |
+| `SEPP_SHIM_CONV` / `SEPP_SHIM_CONV_MAX_TURNS` | shim conversation mode / thread cap |
+| `SEPP_GARAK_HOME` | garak venv root for the battery (default `.venv-garak`) |
+
+## Operating rules
+
+- **Scope**: only explicitly delegated hosts; all target traffic through Caido.
+- **Rate budget**: ≤ 50 requests per burst, pauses between batches, stop on 5xx storms.
+- **Approvals**: state-changing probes need explicit operator confirmation.
+- **Evidence**: findings require reproduced request pairs (`caido-cli request <id>`); no secrets in reports or chat.
+
+## Repository layout
 
 | Path | Kind | Purpose |
 |---|---|---|
-| `AGENTS.md` | code | Agent methodology, hard rules, test priorities, report format |
-| `Makefile` | code | Setup, plugin build/pack, CLI install, and testbed targets |
+| `AGENTS.md` | code | Agent methodology, hard rules, priorities, report format |
+| `ROADMAP.md` | code | Execution roadmap for the LLM test program |
+| `Makefile` | code | Setup, plugin build, CLI install, testbed + LLM targets |
 | `sepp.sh` | code | Session launcher (loads `.env`, checks Caido, starts `pi`) |
-| `drivers/` | code | Target-blind transport, adapter loader, and OpenAI shim for NVIDIA garak |
-| `helpers/` | code | Findings ledger, JWT/OAuth analyzers, LLM job harness, ffuf wrapper |
+| `configs/garak_profiles.json` | code | Probe definitions + request ceilings for the garak battery |
+| `drivers/` | code | Target-blind transport, adapter loader, OpenAI shim, headless render |
+| `docs/` | code | Exploit playbooks, control verification, program plan, acceptance map |
+| `helpers/` | code | Findings ledger, JWT/OAuth analyzers, LLM job harness, ffuf discovery |
+| `payloads/` | code | Injection, supply-chain, poisoning, misinformation payload lists |
 | `plugins/sepp/` | code | First-party Caido plugin (**SEPP: send to Hunt**) |
-| `scripts/` | code | Setup, smoke checks, CA export, harvester, garak canary, hunter board, workspace manager |
-| `payloads/` | code | Prompt-injection and API probe payload lists |
-| `testbed/` | code | Local OWASP LLM Top 10 vulnerable app and verification suite |
-| `.pi/` | code | `pi` agent definitions (`hunter.md`), extensions, MCP config, and templates |
-| `data/` | data | Per-target adapters/creds, CA cert, workspaces, reports, garak output (**gitignored**) |
-| `.env` | data | API keys and local overrides (**gitignored**) |
-
-Key environment variables: `CAIDO_TARGET` (target slug under `data/targets/`, default `testbed`), `CAIDO_URL`, `CAIDO_PROXY`, `CAIDO_DATA_DIR` (default `./data`), `SEPP_RATE_PAUSE`.
-
-Per-target pacing: set `"rate_pause_s": <seconds>` in `data/targets/<slug>/target.json` to tune the inter-request pause for one target (resolved per request as env `SEPP_RATE_PAUSE` > `rate_pause_s` > default 10 s). Keep values consistent with AGENTS.md rate budget (≤50 req/burst; ≥3 s recommended minimum).
+| `scripts/` | code | Batteries, gate, onboarding, harvester, canary, boards, rigs + offline tests |
+| `testbed/` | code | Vulnerable OWASP LLM app, expectations, control fixtures |
+| `.pi/` | code | `pi` agent definitions, extensions (slash commands), MCP config |
+| `data/`, `.env` | data | Runtime artifacts, per-target creds, reports (**gitignored**) |
 
 ## Verify
 
 ```bash
-./scripts/smoke.sh    # checks Caido reachability, CLI auth, and helper CLIs
+./scripts/smoke.sh                                            # Caido reachability, CLI auth, helper CLIs
+python3 -m unittest discover -s scripts -p "test_*.py"        # offline unit suites
+python3 -m unittest discover -s helpers -p "test_*.py"
+python3 scripts/check_adapters.py                              # adapter contracts
+make testbed-verify                                            # testbed expectation matrix
 ```
 
-[LLM control verification](docs/llm-control-verification.md) covers local target readiness, smoke/core/full profiles, the Ollama summary, and evaluating captured application outcomes.
+Details: [LLM control verification](docs/llm-control-verification.md) · [onboarding/readiness](docs/local-readiness.md) · [program plan](docs/llm-test-program-implementation.md)
