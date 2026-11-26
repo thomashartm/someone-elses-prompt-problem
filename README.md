@@ -56,6 +56,45 @@ After `make setup`:
 
 `sepp.sh` also repairs stale `.venv-garak/bin` shebangs after repo moves (renames bake absolute paths into entry scripts).
 
+## Red-team investigation, start to finish
+
+Walkthrough for taking one delegated target from "nothing running" to a reported hunt.
+
+1. **Start Caido** (desktop app). Its proxy listens on `127.0.0.1:8080`. Confirm the CLI can see it:
+   ```bash
+   caido-cli status -u http://127.0.0.1:8080
+   ```
+2. **One-time tooling** (if not already done): `make setup`, then the four post-setup steps above (Caido CLI/MCP login, plugin install, `.env` → `VENICE_API_KEY`).
+3. **Route your browser through Caido**: set the system/browser proxy to `127.0.0.1:8080` and trust Caido's CA. Log into the target application normally — the authenticated requests (cookies, JWTs, OAuth grants) are now in proxy history for the agents to harvest.
+4. **Check plumbing and TLS trust**:
+   ```bash
+   ./scripts/smoke.sh                 # Caido reachability, CLI auth, helper CLIs
+   python3 scripts/export_ca.py       # cache Caido's CA so proxied TLS calls verify (idempotent)
+   ```
+5. **(Optional) warm up the local testbed** instead of a real target: `make testbed-up && make testbed-seed` — then use `http://127.0.0.1:8765` as the target below. Credentials: `testbed/README.md`.
+6. **Launch a session**: `./sepp.sh` (presets: `deepseek`, `go`; `--check` to dry-verify). The main session boots as the **controller**.
+7. **Delegate the target** — either say `target: https://api.example.com/v2/chat` in chat, or right-click a captured request in Caido HTTP History → **SEPP: send to Hunt**. Then arm the ledger and scope:
+   ```
+   /hunt-start https://api.example.com
+   /hunt-scope api.example.com
+   ```
+8. **Orientation (controller, zero attack traffic)**: reads Caido history (HTTPQL filters), maps endpoints, auth mechanisms and object-ID shapes. For a non-testbed live target, onboard it:
+   ```bash
+   python3 scripts/onboard_target.py wire --slug mytarget --url https://api.example.com/v2/chat --from-request <caido-request-id>
+   python3 scripts/check_adapters.py mytarget
+   python3 scripts/harvest_target.py --slug mytarget      # freshest session from history
+   TARGET=mytarget scripts/run_garak_canary.sh            # identity-checked garak smoke via shim
+   ```
+9. **Hunt loop (hunters, in background workspaces)**: hypothesize → cheapest experiment → prove with a legit-vs-manipulated request pair through Caido. Destructive/state-changing probes escalate to you for approval before firing. Run heavier batteries on demand:
+   ```bash
+   make llm-exploits                                              # app-layer, testbed
+   SEPP_RATE_PAUSE=2 python3 scripts/garak_battery.py --profile smoke   # model-layer, shim
+   ```
+10. **Track the hunt**: `/hunters` (live board), `/hunt-status` (deterministic report from disk), `/findings` (ledger). Every finding references Caido request IDs — no secrets in chat.
+11. **Close out**: `/hunt-brief` for the interpreted summary with recommendations; evidence, workspaces and reports persist under `data/workspaces/<host-per-day>/` and `data/reports/`.
+
+Steps 7–11 run inside `pi`; everything is also scriptable from a plain shell (`scripts/hunter_board.py`, `helpers/findings.py`) without an agent session.
+
 ## Usage
 
 ```bash
