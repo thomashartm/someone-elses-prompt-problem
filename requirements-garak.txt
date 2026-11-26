@@ -1,0 +1,14 @@
+# Pinned toolchain for the NVIDIA garak venv (.venv-garak).
+#
+# Provisioning: scripts/setup_local.sh creates the venv; sepp.sh §4 repairs
+# stale shebangs after repo moves (issue #60). This file pins the versions
+# verified together, so a rebuild reproduces the working toolchain:
+#
+#   .venv-garak/bin/pip install -r requirements-garak.txt
+#
+# Requires Python >= 3.12 (garak 0.17 line drops older interpreters -
+# `pip index versions garak` under an older python silently shows only the
+# 0.9.x series, which is why a naive pin at 0.9 would regress the canary).
+garak==0.17.1
+fastapi==0.165.0
+uvicorn==0.54.0
