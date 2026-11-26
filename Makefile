@@ -84,7 +84,7 @@ CONTROL_PYTHON ?= python3
 LLM_PROFILE ?= core
 LLM_GATE_PROFILE ?= smoke
 
-.PHONY: testbed-local llm-smoke llm-battery llm-gate
+.PHONY: testbed-local llm-smoke llm-battery llm-gate llm-exploits
 
 ## testbed-local: start the isolated local Ollama testbed
 testbed-local:
@@ -101,3 +101,7 @@ llm-battery:
 ## llm-gate: evaluate saved evidence against a required policy
 llm-gate:
 	"$(CONTROL_PYTHON)" scripts/llm_gate.py "$(POLICY)" "$(REPORT)" --profile "$(LLM_GATE_PROFILE)"
+
+## llm-exploits: full OWASP LLM exploit battery vs dockerized testbed (naive+strict, incl. exfil rig)
+llm-exploits:
+	python3 scripts/exploit_battery.py --with-exfil-rig

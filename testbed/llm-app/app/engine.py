@@ -35,17 +35,23 @@ BLACKLIST_TERMS = ("ignore", "disregard", "reveal", "exfiltrate", "forget")
 
 
 CONFUSABLES = str.maketrans({
-    # Cyrillic-Latin confusables (subset sufficient for the test suite)
-    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y",
-    "і": "i", "к": "k", "м": "m", "т": "t", "в": "b", "н": "h",
+    # Cyrillic-Latin confusables (subset sufficient for the test suite);
+    # BOTH cases: capital Р (U+0420) is the canonical plant char in
+    # EXPECTATIONS.md LLM01 and historically never folded (engine gap)
+    "а": "a", "А": "A", "е": "e", "Е": "E", "о": "o", "О": "O",
+    "р": "p", "Р": "P", "с": "c", "С": "C", "х": "x", "Х": "X",
+    "у": "y", "У": "Y", "і": "i", "І": "I", "к": "k", "К": "K",
+    "м": "m", "М": "M", "т": "t", "Т": "T", "в": "b", "В": "B",
+    "н": "h", "Н": "H",
     # fullwidth -> ascii
 })
 
 
 def fold(text: str) -> str:
-    """Script-confusable fold. NFKC alone does NOT unify homoglyphs
-    (Cyrillic U+0440 is a different codepoint than Latin 'p') - proven
-    in-container during B2. Every recognition path folds FIRST."""
+    """Script-confusable fold, both cases. NFKC alone does NOT unify
+    homoglyphs (Cyrillic U+0440/U+0420 are different codepoints than
+    Latin p/P) - proven in-container during B2. Every recognition path
+    folds FIRST."""
     return unicodedata.normalize("NFKC", text).translate(CONFUSABLES)
 
 
