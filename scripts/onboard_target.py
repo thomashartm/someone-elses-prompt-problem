@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Register, inventory and verify local target profiles using sanitized responses."""
+"""Register, inventory and verify local target profiles using sanitized responses.
+
+Wire a LIVE endpoint as a new target (concept P1, target-agnostic onboarding):
+
+    onboard_target.py wire --slug <slug> --url <url> [--dialect json|sse]
+                           [--baseline FILE] [--from-request CAIDO_ID]
+                           [--header 'Name: value']... [--force]
+
+Creates data/targets/<slug>/{adapter.py,target.json,baseline.req,fixtures/}
+from a dialect template and appends host→slug to data/targets/index.json.
+No source file outside data/, testbed/ and docs learns the host.
+"""
 from __future__ import annotations
 
 import argparse
@@ -11,8 +22,90 @@ import tempfile
 from pathlib import Path
 
 TARGETS = Path(__file__).resolve().parents[1] / "data" / "targets"
+INDEX = TARGETS / "index.json"
 SLUG = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]*")
 PLACEHOLDERS = {"", "...", "…", "todo", "tbd", "unknown", "n/a", "placeholder", "redacted", "replace me"}
+
+# dialect templates honouring drivers/ADAPTER_CONTRACT.md. No host is baked in.
+ADAPTER_TEMPLATES = {
+    "json": '''"""Auto-generated adapter (dialect: json, single answer field).
+Reviewed-by: <human glance before first live run>."""
+from __future__ import annotations
+import json
+
+
+def build_body(prompt: str, model: str, *, fresh_conversation: bool,
+               conversation_id: str | None) -> bytes:
+    body = {"message": prompt}
+    if not fresh_conversation and conversation_id:
+        body["conversation_id"] = conversation_id
+    return json.dumps(body).encode()
+
+
+def parse(raw: str) -> tuple[str, str, str | None]:
+    """Extract (text, kind, conversation_id) from a JSON body."""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return "", "error", None
+    if not isinstance(data, dict):
+        return "", "error", None
+    if "answer" in data and isinstance(data["answer"], str):
+        return data["answer"], "ok", data.get("conversation_id")
+    if "decline" in data and isinstance(data["decline"], str):
+        return data["decline"], "declined", data.get("conversation_id")
+    return "", "error", None
+
+
+def default_model() -> str:
+    return "default"
+''',
+    "sse": '''"""Auto-generated adapter (dialect: sse, data: {...} lines).
+Reviewed-by: <human glance before first live run>."""
+from __future__ import annotations
+import json
+
+
+def build_body(prompt: str, model: str, *, fresh_conversation: bool,
+               conversation_id: str | None) -> bytes:
+    body = {"message": prompt, "stream": True}
+    if not fresh_conversation and conversation_id:
+        body["conversation_id"] = conversation_id
+    return json.dumps(body).encode()
+
+
+def parse(raw: str) -> tuple[str, str, str | None]:
+    """Concatenate SSE data-line deltas into one assistant text."""
+    text_parts, conv = [], None
+    for line in raw.splitlines():
+        if not line.startswith("data:"):
+            continue
+        payload = line[len("data:"):].strip()
+        if payload in ("[DONE]", ""):
+            continue
+        try:
+            event = json.loads(payload)
+        except ValueError:
+            continue
+        delta = event.get("delta") or event.get("answer") or event.get("text") or ""
+        if delta:
+            text_parts.append(str(delta))
+        if event.get("decline"):
+            return str(event["decline"]), "declined", event.get("conversation_id")
+        if event.get("conversation_id"):
+            conv = event["conversation_id"]
+    if not text_parts:
+        return "", "error", conv
+    return "".join(text_parts), "ok", conv
+
+
+def default_model() -> str:
+    return "default"
+''',
+}
+
+FIXTURE_OK = {"answer": "synthetic success answer from onboarding", "conversation_id": "conv-fixtures-1"}
+FIXTURE_DECLINE = {"decline": "synthetic decline: content filter engaged"}
 
 
 def supplied(value):
@@ -176,6 +269,79 @@ def register(folder, bundle):
     return result
 
 
+def wire_index_add(host: str, slug: str) -> None:
+    INDEX.parent.mkdir(parents=True, exist_ok=True)
+    index = {}
+    if INDEX.exists():
+        try:
+            index = json.loads(INDEX.read_text())
+        except ValueError:
+            index = {}
+    index[host] = slug
+    INDEX.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n")
+
+
+def wire(slug: str, url: str, dialect: str, baseline: Path | None,
+         from_request: str | None, headers: list[str], force: bool) -> dict:
+    """Concept P1: scaffold a live target under data/targets/<slug>/."""
+    from urllib.parse import urlsplit
+
+    folder = TARGETS / slug
+    if folder.exists() or folder.is_symlink():
+        if not force:
+            return {"status": "refused", "reason": "target already exists (use --force to overwrite)"}
+        import shutil
+        shutil.rmtree(folder)
+    if not url.startswith(("http://", "https://")):
+        return {"status": "refused", "reason": "url must be http(s)"}
+    parts = urlsplit(url)
+    if not parts.hostname:
+        return {"status": "refused", "reason": "url carries no host"}
+    if dialect not in ADAPTER_TEMPLATES:
+        return {"status": "refused", "reason": f"dialect must be one of {sorted(ADAPTER_TEMPLATES)}"}
+
+    folder.mkdir(parents=True)
+    (folder / "adapter.py").write_text(ADAPTER_TEMPLATES[dialect], encoding="utf-8")
+    (folder / "target.json").write_text(json.dumps(
+        {"url": url, "dialect": dialect, "onboarded": "wire"}, indent=2) + "\n", encoding="utf-8")
+
+    if baseline:
+        (folder / "baseline.req").write_bytes(Path(baseline).read_bytes())
+    elif from_request:
+        import subprocess
+        proc = subprocess.run(["caido-cli", "request", from_request], capture_output=True, timeout=30)
+        if proc.returncode:
+            return {"status": "failed", "reason": f"caido-cli request {from_request} failed",
+                    "target_dir": str(folder)}
+        (folder / "baseline.req").write_bytes(proc.stdout)
+    else:
+        host_hdr = parts.hostname + (f":{parts.port}" if parts.port else "")
+        synthesized = (f"POST {parts.path or '/'} HTTP/1.1\r\n"
+                       f"Host: {host_hdr}\r\n"
+                       + "".join(f"{h}\r\n" for h in headers)
+                       + "Content-Type: application/json\r\n\r\n")
+        (folder / "baseline.req").write_text(synthesized, encoding="utf-8")
+
+    fixtures = folder / "fixtures"
+    fixtures.mkdir(exist_ok=True)
+    ok_body = json.dumps(FIXTURE_OK) if dialect == "json" else "data: " + json.dumps(FIXTURE_OK) + "\n\n"
+    decline_body = json.dumps(FIXTURE_DECLINE) if dialect == "json" else "data: " + json.dumps(FIXTURE_DECLINE) + "\n\n"
+    (fixtures / "answer_ok.txt").write_text(ok_body, encoding="utf-8")
+    (fixtures / "decline_notice.txt").write_text(decline_body, encoding="utf-8")
+
+    wire_index_add(parts.netloc, slug)
+    return {
+        "status": "wired",
+        "target_dir": str(folder),
+        "next": [
+            f"python3 scripts/check_adapters.py {slug}",
+            "human review of adapter.py (executable code in data/)",
+            f"python3 scripts/harvest_target.py --slug {slug}   # credentials expire in hours",
+            f"TARGET={slug} scripts/run_garak_canary.sh",
+        ],
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--targets-dir", type=Path, default=TARGETS)
@@ -185,11 +351,27 @@ def main():
     add = actions.add_parser("register", help="register a sanitized pair of JSON response fixtures")
     add.add_argument("target")
     add.add_argument("--fixtures", required=True, type=Path, help="bundle containing readiness.json and fixtures/")
+    wire_cmd = actions.add_parser("wire", help="onboard a LIVE endpoint as a new target (concept P1)")
+    wire_cmd.add_argument("--slug", required=True)
+    wire_cmd.add_argument("--url", required=True)
+    wire_cmd.add_argument("--dialect", default="json", choices=("json", "sse"))
+    wire_cmd.add_argument("--baseline", type=Path, help="copy this raw request as baseline.req")
+    wire_cmd.add_argument("--from-request", help="extract baseline.req from this Caido request id")
+    wire_cmd.add_argument("--header", action="append", default=[], dest="headers",
+                          help="extra baseline header, repeatable ('Name: value')")
+    wire_cmd.add_argument("--force", action="store_true")
     args = parser.parse_args()
     if args.action == "list":
         folders = args.targets_dir.iterdir() if args.targets_dir.is_dir() else []
         print(json.dumps([inventory(p) for p in sorted(folders) if p.is_dir() and SLUG.fullmatch(p.name)], indent=2))
         return 0
+    if args.action == "wire":
+        if not SLUG.fullmatch(args.slug):
+            parser.error("slug must begin with a letter or digit")
+        result = wire(args.slug, args.url, args.dialect, args.baseline,
+                      args.from_request, args.headers, args.force)
+        print(json.dumps(result, indent=2))
+        return 0 if result.get("status") == "wired" else 1
     if not SLUG.fullmatch(args.target):
         parser.error("target must be a directory name beginning with a letter or digit")
     folder = args.targets_dir / args.target
