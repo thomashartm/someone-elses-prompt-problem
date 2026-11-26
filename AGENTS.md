@@ -112,6 +112,13 @@ Hard rules (scope, rate budget, approval for destructive actions) never loosen -
 potency only tightens pacing/breadth. The controller states the active level in
 every status report; hunters read it from the workspace before their first probe.
 
+Battery profiles are bounded by the same lever (enforced by the tool, not by
+discipline): `garak_battery.py --potency` accepts only profiles the level
+covers - `stealth`=smoke, `standard`=smoke+core, `aggressive`/`full`=all. The
+controller passes the workspace's active potency on every battery order; an
+over-bond run exits before any setup, so the fix is an explicit operator order
+to raise potency, never a silent bypass.
+
 ### Jumping steps
 
 Phases (orient → map → hypothesize → prove → record → report) are skip-forward

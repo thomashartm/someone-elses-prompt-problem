@@ -69,7 +69,7 @@ Then the whole engagement from the agent shell:
 | Session | `./sepp.sh` (once) | Boots as **controller** |
 | Bootstrap | *"prep the environment for https://api.example.com"* | Verifies Caido + CLI auth, exports CA, harvests freshest credentials from history, wires/checks the target adapter, reports each result — or tells you precisely what is missing (e.g. "no authenticated traffic for this host in history") |
 | Arm | `/hunt-start https://api.example.com` · `/hunt-scope api.example.com` | Arms the findings/phase ledger and scope (equivalent: just say *"start a hunt against …"*). Say *"isolated workspace for this hunt"* and the hunt runs in its **own** workspace (`<date>-<host>--<hunt>`), parallel to any other hunt on the same host |
-| Potency | *"run stealth"* / *"go aggressive"* / *"full power, but ask before writes"* | Sets the potency level (ladder in `AGENTS.md`: `stealth` → `standard` → `aggressive` → `full`) — governs burst size, pacing floor and probe classes for every hunter, changeable mid-hunt, recorded in the workspace |
+| Potency | *"run stealth"* / *"go aggressive"* / *"full power, but ask before writes"* | Sets the potency level (ladder in `AGENTS.md`: `stealth` → `standard` → `aggressive` → `full`) — governs burst size, pacing floor and probe classes for every hunter, changeable mid-hunt, recorded in the workspace. The bound also caps **battery profiles**: `stealth` may only run the smoke garak battery (12 requests), `standard` adds core, `aggressive`/`full` unlock full — over-bond requests are refused, raising potency is your explicit order |
 | Orient | *"orient on the target, plan the hunt"* | Reads Caido history (zero attack traffic), maps endpoints/auth/object-IDs, proposes a prioritized probe plan **and waits for your go** |
 | Jump | *"skip mapping, go straight to prove"* / *"back to orientation with the new creds"* | Phases are skip-forward and skip-back on your order; scope/escalation gates still apply at every phase |
 | Hunt | *"go"* / *"run the exploit battery"* / *"run the smoke garak battery"* | Spawns background **hunter** subagents per leg; they hypothesize, run cheapest-experiment probes through Caido, and prove each issue with a legit-vs-manipulated request pair |
@@ -132,9 +132,11 @@ make llm-exploits    # full battery incl. exfil rig; JSON report in data/reports
 
 ```bash
 python3 scripts/garak_battery.py --profile smoke --dry-run   # budget census only
-SEPP_RATE_PAUSE=2 python3 scripts/garak_battery.py --profile core
+SEPP_RATE_PAUSE=2 python3 scripts/garak_battery.py --profile core   # default potency: standard
 python3 scripts/llm_gate.py <policy.json> <report.json> --profile smoke
 ```
+
+Profiles are potency-bounded (`--potency`, default `standard`; ladder in `AGENTS.md`): `stealth` runs smoke only, `standard` smoke+core, `aggressive`/`full` everything. The controller derives `--potency` from the hunt workspace's `session.json`, so a low-potency hunt cannot spend a heavy battery without the operator raising potency first — over-bond runs are refused before any setup.
 
 Single-probe canary: `make testbed-canary` (identity-checked shim + `dan.DAN_Jailbreak`, report verified by `scripts/verify_garak_report.py`).
 

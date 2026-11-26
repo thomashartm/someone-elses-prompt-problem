@@ -215,5 +215,35 @@ class DryRunCliTests(TempTestCase):
         self.assertEqual(rc, 0)
 
 
+class PotencyBindingTests(TempTestCase):
+    """The potency ladder bounds which profiles a run may spend (AGENTS.md)."""
+
+    MAP = {"stealth": {"smoke"}, "standard": {"smoke", "core"},
+           "aggressive": {"smoke", "core", "full"}, "full": {"smoke", "core", "full"}}
+
+    def test_ladder_covers_all_profiles_at_top(self):
+        self.assertEqual(gb.POTENCY_PROFILES, self.MAP)
+        self.assertEqual(gb.POTENCY_PROFILES["full"], set(gb.CEILINGS))
+
+    def test_below_bond_profile_refused_before_any_setup(self):
+        with patch.object(sys, "argv", ["garak_battery.py", "--profile", "full",
+                                        "--potency", "stealth"]), \
+             patch.object(gb, "load_profiles") as lp:
+            rc = gb.main()
+        self.assertEqual(rc, 2)
+        lp.assert_not_called()  # refusal costs nothing, reads nothing
+
+    def test_stealth_allows_smoke(self):
+        with patch.object(sys, "argv", ["garak_battery.py", "--profile", "smoke",
+                                        "--potency", "stealth", "--dry-run"]), \
+             patch.object(gb, "load_profiles",
+                          return_value={"smoke": {**profile_fixture()}}), \
+             patch.object(gb, "count_prompts",
+                          return_value={"dan.DAN_Jailbreak": 1,
+                                        "web_injection.StringAssemblyDataExfil": 2}):
+            rc = gb.main()
+        self.assertEqual(rc, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
