@@ -10,7 +10,8 @@ Owns:
   (headers harvested from the captured browser request)
 - curl via Caido (--proxytunnel --cacert), SSE-safe (-N, generous timeout)
 - one silent CA regeneration on curl exit 60 (proxy rotated its CA)
-- rate limiting: SEPP_RATE_PAUSE sleep after each OUTBOUND request
+- rate limiting: sleep after each OUTBOUND request, resolved per target:
+  env SEPP_RATE_PAUSE > target.json "rate_pause_s" > default 10 s
 - no blind retries (a timed-out turn was already processed server-side)
 """
 from __future__ import annotations
@@ -27,7 +28,13 @@ HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent
 DATA_ROOT = pathlib.Path(os.environ.get("CAIDO_DATA_DIR", REPO / "data"))
 
-RATE_PAUSE_S = float(os.environ.get("SEPP_RATE_PAUSE", "10"))
+# Default inter-request pause (seconds) AFTER each OUTBOUND request.
+# Resolution order in Target.rate_pause_s():
+#   1. env SEPP_RATE_PAUSE   (explicit override, wins over everything)
+#   2. target.json "rate_pause_s"  (per-target tuning, persisted per target)
+#   3. this DEFAULT_RATE_PAUSE_S = 10 (conservative fallback for new targets)
+DEFAULT_RATE_PAUSE_S = 10.0
+RATE_PAUSE_S = float(os.environ.get("SEPP_RATE_PAUSE", DEFAULT_RATE_PAUSE_S))  # legacy re-export
 
 # Headers worth replaying from the captured browser request.
 # authorization: required for JWT-bearing targets (e.g. the testbed bearer).
@@ -51,7 +58,12 @@ class Target:
         self.cfg = json.loads((self.dir / "target.json").read_text())
         baseline = (self.dir / "baseline.req").read_bytes().decode()
         self.header_args = []
-        for line in baseline.split("\r\n\r\n")[0].split("\r\n"):
+        # GitHub issue #78: harvest_target.py once laundered CRLF->LF, so the
+        # header block separator/line-ending must be parsed tolerantly.
+        import re as _re
+        head = _re.split(rb"\r?\n\r?\n", baseline.encode(), maxsplit=1)[0]
+        for line in _re.split(rb"\r?\n", head):
+            line = line.decode(errors="replace")
             low = line.lower()
             if low.startswith(DROP_PREFIXES):
                 continue
@@ -61,6 +73,21 @@ class Target:
     @property
     def url(self) -> str:
         return self.cfg["url"]
+
+    @property
+    def rate_pause_s(self) -> float:
+        """Inter-request pause for this target.
+
+        Precedence: env SEPP_RATE_PAUSE > target.json rate_pause_s >
+        DEFAULT_RATE_PAUSE_S. See module docstring on rate limiting.
+        """
+        env = os.environ.get("SEPP_RATE_PAUSE")
+        if env:
+            return float(env)
+        val = self.cfg.get("rate_pause_s")
+        if val is not None:
+            return float(val)
+        return DEFAULT_RATE_PAUSE_S
 
     @property
     def default_conversation_id(self):
@@ -114,7 +141,8 @@ def chat_turn(adapter, target: Target, prompt: str, *,
     want_kind=True, a 4-tuple with the adapter's parse kind appended
     ("ok" | "declined" | "error"). Callers needing decline semantics
     (multi-turn conversation reuse) use the 4-tuple; existing callers are
-    untouched. Sleeps RATE_PAUSE_S AFTER the request (every request hits the
+    untouched. Sleeps the resolved pause (Target.rate_pause_s) AFTER the
+    request (every request hits the
     server; pacing is not skipped on failures). Callers wanting retries must
     opt in ABOVE this layer.
     """
@@ -128,7 +156,7 @@ def chat_turn(adapter, target: Target, prompt: str, *,
     status = code if code != "???" else "ERR"
     if code == "200" and kind == "error":
         status = "200-empty"
-    time.sleep(RATE_PAUSE_S)
+    time.sleep(target.rate_pause_s)
     return (status, text, conv_id, kind) if want_kind else (status, text, conv_id)
 
 
