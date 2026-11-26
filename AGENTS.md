@@ -209,6 +209,7 @@ helpers/findings.py  list|create|introspect   – findings ledger (Caido + fallb
 scripts/hunter_board.py                             – hunter heartbeat
                                                        (also: stop <name> = cooperative stop request): register/refresh your row on the live board
 scripts/engagement_status.py                      – controller brief: hunt standing/attack-surface/decisions (feeds /sepp-status in pi)
+scripts/capabilities.py                            – machine-derived capability sheet (potency ladder+battery binding, profiles, slash commands, make targets); /capabilities in pi
                                                        (heartbeat at leg start, every phase flip, after probe batches, --done at close;
                                                         controllers read it via /hunters in pi)
 helpers/jwt_tools.py                                – offline JWT analysis: decode, delta, forge-none

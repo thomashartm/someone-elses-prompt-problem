@@ -302,7 +302,10 @@ def summarize_report(report_path: pathlib.Path, profile_name: str, profile: dict
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--profile", required=True, choices=sorted(CEILINGS))
+    ap.add_argument("--list", action="store_true", dest="list_profiles",
+                    help="show profiles (predicted/ceiling/probes) + potency binding, exit")
+    ap.add_argument("--profile", choices=sorted(CEILINGS),
+                    help="battery to run (see --list; required unless --list)")
     ap.add_argument("--slug", default=os.environ.get("CAIDO_TARGET", "testbed"))
     ap.add_argument("--environment", default="testbed-mock",
                     help="environment label recorded for the gate (must match the policy)")
@@ -318,6 +321,21 @@ def main() -> int:
                          "aggressive/full=all")
     args = ap.parse_args()
 
+    if args.list_profiles:
+        try:
+            preds = {n: spec["predicted_requests"] for n, spec in load_profiles().items()}
+        except BatteryError:
+            preds = {}
+        print("profiles (predicted / ceiling / allowed potency):")
+        for name in sorted(CEILINGS):
+            cov = ", ".join(sorted(l for l, ps in POTENCY_PROFILES.items() if name in ps))
+            print(f"  {name:<7} {preds.get(name, '?'):>4} / {CEILINGS[name]:<4} ({cov})")
+        print("pick with --profile; `scripts/capabilities.py` has the full sheet "
+              "(probes, commands, make targets)")
+        return 0
+
+    if not args.profile:
+        ap.error("--profile is required (or use --list)")
     if args.profile not in POTENCY_PROFILES[args.potency]:
         print(f"potency '{args.potency}' does not cover profile '{args.profile}' "
               f"(allowed: {sorted(POTENCY_PROFILES[args.potency])}); "
