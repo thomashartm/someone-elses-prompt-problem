@@ -11,6 +11,8 @@ harvest_target.py — harvest freshest target JWT cookie from Caido history: pyt
 hunter_board.py — hunter heartbeat/roster/stop/abort: python3 scripts/hunter_board.py heartbeat|list|get|stop|abort
 manage_scope.py — Caido scope manager (sepp scope, local testbed + noise denylist): python3 scripts/manage_scope.py ensure|add|show [SITE...]
 run_garak_canary.sh — garak canary via universal shim: TARGET=<slug> scripts/run_garak_canary.sh; prints the verified JSONL path for this invocation
+garak_battery.py — profiled probe battery (smoke|core|full) via shim, budget-enforced preflight, writes llm_gate-ready report: python3 scripts/garak_battery.py --profile smoke [--dry-run] (garak venv rooted at $SEPP_GARAK_HOME, default .venv-garak)
+configs/garak_profiles.json — committed probe definitions for the battery (select by name, ceilings 12/414/628)
 verify_garak_report.py — validate a completed report: python3 scripts/verify_garak_report.py <report.jsonl>
 sepp.sh — Caido→Hunt bridge receiver (global `sepp` via make install-cli): sepp <url> <method> [raw] [cookies] ...
 setup_local.sh — one-command workstation install (behind `make setup`): bash scripts/setup_local.sh

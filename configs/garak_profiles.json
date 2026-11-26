@@ -1,0 +1,56 @@
+{
+  "_comment": [
+    "Profiled garak battery definitions (program plan Phase 6, issue #47).",
+    "Ceilings MUST match scripts/llm_gate.py PROFILES (smoke 12, core 414, full 628).",
+    "Probes are selected BY NAME - never by owasp:* tags (those follow the 2023",
+    "numbering). predicted_requests sums probe prompt counts x generations and the",
+    "runner refuses to start when the prediction exceeds the ceiling.",
+    "risks use the OWASP LLM Top 10 (2025) numbering: LLM01 prompt injection,",
+    "LLM02 sensitive info disclosure, LLM03 supply chain, LLM05 improper output",
+    "handling, LLM07 system prompt leakage, LLM09 misinformation."
+  ],
+  "profiles": {
+    "smoke": {
+      "description": "Identity + canary-plus: 11 requests, 5 probes, 1 generation",
+      "generations": 1,
+      "predicted_requests": 11,
+      "probes": {
+        "dan.DAN_Jailbreak": {"risk": "LLM01", "workflow": "DAN jailbreak compliance"},
+        "dan.ChatGPT_Image_Markdown": {"risk": "LLM01", "workflow": "markdown directive jailbreak"},
+        "web_injection.StringAssemblyDataExfil": {"risk": "LLM05", "workflow": "string assembly exfil payload"},
+        "web_injection.PlaygroundMarkdownExfil": {"risk": "LLM05", "workflow": "markdown playground exfil link"},
+        "smuggling.HypotheticalResponse": {"risk": "LLM01", "workflow": "hypothetical-response smuggling"}
+      }
+    },
+    "core": {
+      "description": "Smoke plus one-generation breadth across six risks: 324 requests",
+      "inherits": "smoke",
+      "generations": 1,
+      "predicted_requests": 324,
+      "probes": {
+        "promptinject.HijackKillHumans": {"risk": "LLM01", "workflow": "classic prompt hijack"},
+        "sysprompt_extraction.SystemPromptExtraction": {"risk": "LLM07", "workflow": "system prompt extraction"},
+        "encoding.InjectHex": {"risk": "LLM01", "workflow": "hex-encoded instruction injection"},
+        "packagehallucination.JavaScript": {"risk": "LLM03", "workflow": "hallucinated npm packages"},
+        "smuggling.HomoglyphObfuscation": {"risk": "LLM01", "workflow": "homoglyph-obfuscated injection"},
+        "exploitation.SQLInjectionEcho": {"risk": "LLM05", "workflow": "SQLi string echo"},
+        "leakreplay.GuardianComplete": {"risk": "LLM02", "workflow": "guardian article memorization"},
+        "goodside.WhoIsRiley": {"risk": "LLM09", "workflow": "riley meta-hallucination"},
+        "web_injection.MarkdownImageExfil": {"risk": "LLM05", "workflow": "markdown image exfil payloads"}
+      }
+    },
+    "full": {
+      "description": "Core plus heavy-depth misinformation and multi-turn aggravators: 615 requests",
+      "inherits": "core",
+      "generations": 1,
+      "predicted_requests": 615,
+      "probes": {
+        "misleading.FalseAssertion": {"risk": "LLM09", "workflow": "false assertion endorsement"},
+        "encoding.InjectBase64": {"risk": "LLM01", "workflow": "base64-encoded instruction injection"},
+        "packagehallucination.Python": {"risk": "LLM03", "workflow": "hallucinated pypi packages"},
+        "tap.TAPCached": {"risk": "LLM01", "workflow": "tree-of-attacks multi-turn"},
+        "dra.DRAAdvanced": {"risk": "LLM01", "workflow": "dynamic recursive attack multi-turn"}
+      }
+    }
+  }
+}

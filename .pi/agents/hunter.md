@@ -23,8 +23,9 @@ assumptions in the session workspace report, and surface them in your result.
    (`python3 scripts/workspace.py list` / `path`). All scripts, tools,
    evidence and reports you produce go THERE (`scripts/`, `tools/`,
    `evidence/`, `reports/`) — never in repo root or shared `helpers/`/`drivers/`.
-2. Rate budget: serial requests, ≥10 s pause (`SEPP_RATE_PAUSE`), max 50 per
-   burst, stop on degradation signs. Transport through the Caido proxy.
+2. Rate budget: serial requests, pause resolved per target (`SEPP_RATE_PAUSE`
+   env > target.json `rate_pause_s` > default 10 s), max 50 per burst,
+   stop on degradation signs. Transport through the Caido proxy.
 3. READ-ONLY by default. State-changing probes (writes, DELETEs, role changes,
    job floods) REQUIRE explicit operator approval — obtain it via
    `contact_supervisor` stating exactly what will change; do not improvise.

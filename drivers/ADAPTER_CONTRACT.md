@@ -43,4 +43,10 @@ Conventions:
   first live run.
 - A session experimenting with dialect variants does so in ITS workspace
   (data/workspaces/<id>/); only the proven winner is promoted here.
+- `target.json` keys consumed by the driver stack: `url`,
+  `conversation_id` (default thread), `rate_pause_s` (inter-request
+  pacing; env `SEPP_RATE_PAUSE` > this key > default 10 s, see
+  `drivers/transport.py::Target.rate_pause_s`), plus harvest-managed
+  session fields (`cookie`, `token_cookie`, `token_exp` — written by
+  `scripts/harvest_target.py`, not hand-edited).
 """

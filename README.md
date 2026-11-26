@@ -147,6 +147,8 @@ See `testbed/README.md` for seeded credentials and environment knobs.
 
 Key environment variables: `CAIDO_TARGET` (target slug under `data/targets/`, default `testbed`), `CAIDO_URL`, `CAIDO_PROXY`, `CAIDO_DATA_DIR` (default `./data`), `SEPP_RATE_PAUSE`.
 
+Per-target pacing: set `"rate_pause_s": <seconds>` in `data/targets/<slug>/target.json` to tune the inter-request pause for one target (resolved per request as env `SEPP_RATE_PAUSE` > `rate_pause_s` > default 10 s). Keep values consistent with AGENTS.md rate budget (≤50 req/burst; ≥3 s recommended minimum).
+
 ## Verify
 
 ```bash

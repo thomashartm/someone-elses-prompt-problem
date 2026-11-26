@@ -58,16 +58,42 @@ def gql(query, variables):
     return _gql(query, variables)
 
 
-def newest_post_id(host, path_substr):
+def candidate_ids(host, path_substr, max_keep=40):
+    """Recent request ids for host, newest first: POSTs first, then others.
+
+    Rationale: a fresh auth cookie often arrives via Set-Cookie on a POST
+    (e.g. /auth/refresh) but is only carried on subsequent GETs — so the
+    freshest USABLE request may not be a POST.
+    """
     f = 'req.host.eq:"%s"' % host
     if path_substr:
         f += ' and req.path.cont:"%s"' % path_substr
-    out = subprocess.run(
-        ["caido-cli", "history", "-f", f, "-n", "2000"],
-        capture_output=True, env=dict(os.environ, CAIDO_URL="http://127.0.0.1:8080"))
-    ids = [int(m.group(1)) for line in out.stdout.decode().splitlines()
-           if (m := re.match(r"\s*(\d+)\s+POST\s+\d*\s*", line))]
-    return max(ids) if ids else None
+    posts, others, cursor, prev_cursor = [], [], "", None
+    for _page in range(300):  # safety bound; each page covers <=100 requests
+        cmd = ["caido-cli", "history", "-f", f, "-n", "100"]
+        if cursor:
+            cmd += ["--after", cursor]
+        out = subprocess.run(cmd, capture_output=True,
+                             env=dict(os.environ, CAIDO_URL="http://127.0.0.1:8080"))
+        text = out.stdout.decode()
+        for line in text.splitlines():
+            m = re.match(r"\s*(\d+)\s+(POST)\s+\d*\s*", line)
+            if m:
+                posts.append(int(m.group(1)))
+                continue
+            m = re.match(r"\s*(\d+)\s+([A-Z]+)\s+\d*\s*", line)
+            if m:
+                others.append(int(m.group(1)))
+            c = re.match(r"--after (\S+)", line.strip())
+            if c:
+                cursor = c.group(1)
+        if not cursor or "--after" not in text:
+            break  # no cursor line => last page reached
+        if cursor == prev_cursor:
+            break  # page didn't advance => last page reached
+        prev_cursor = cursor
+    return sorted(set(posts), reverse=True)[:max_keep], \
+        sorted(set(others), reverse=True)[:max_keep]
 
 
 def main():
@@ -87,21 +113,60 @@ def main():
         print("FAIL: cannot derive host from %s" % cfg["url"], file=sys.stderr)
         return 1
 
-    nid = newest_post_id(host, args.path_substr)
-    if not nid:
-        print("FAIL: no POST traffic for %s in history" % host, file=sys.stderr)
+    posts, others = candidate_ids(host, args.path_substr)
+    if not posts and not others:
+        print("FAIL: no traffic for %s in history" % host, file=sys.stderr)
         return 1
-    out = gql('query($id:ID!){ request(id:$id){ raw } }', {"id": str(nid)})
-    raw = base64.b64decode(out["data"]["request"]["raw"]).decode(errors="replace")
+    # Preference order: with --cookie-name, any request bearing that cookie;
+    # otherwise newest POST, falling back to newest requests of any method.
+    if args.cookie_name:
+        order = sorted(set(posts) | set(others), reverse=True)
+    else:
+        order = posts + sorted(set(others) - set(posts), reverse=True)
+    order = order[:25]  # Caido metadata fetches only, well below rate budget
 
-    cookie = None
-    auth_line = None
-    for line in raw.split("\r\n"):
-        low = line.lower()
-        if low.startswith("cookie:") and cookie is None:
-            cookie = line.split(":", 1)[1].strip()
-        elif low.startswith("authorization:") and auth_line is None:
-            auth_line = line.split(":", 1)[1].strip()
+    def _jar_of(raw_text):
+        """Extract (cookie_header, auth_line) from a raw request."""
+        ck = au = None
+        for line in raw_text.split("\r\n"):
+            low = line.lower()
+            if low.startswith("cookie:") and ck is None:
+                ck = line.split(":", 1)[1].strip()
+            elif low.startswith("authorization:") and au is None:
+                au = line.split(":", 1)[1].strip()
+        return ck, au
+
+    def _fresh_jwt_count(cookie_header):
+        if not cookie_header:
+            return 0
+        return sum(1 for p in cookie_header.split(";")
+                   if "=" in p and jwt_exp(p.strip().split("=", 1)[1] or "")
+                   and jwt_exp(p.strip().split("=", 1)[1]) > time.time())
+
+    # Walk candidates newest-first; when no --cookie-name is forced, prefer
+    # the jar holding the MOST fresh JWT cookies (ties -> newest id): a jar
+    # with fewer fresh JWTs may be missing rotated tokens (e.g. a chat-
+    # gateway cookie that rides along only on richer requests).
+    best = None  # (score_tuple, id, raw, cookie, auth)
+    for cid in order:
+        out = gql('query($id:ID!){ request(id:$id){ raw } }', {"id": str(cid)})
+        cand_raw = base64.b64decode(out["data"]["request"]["raw"]).decode(errors="replace")
+        cand_cookie, cand_auth = _jar_of(cand_raw)
+        if args.cookie_name:
+            if not (cand_cookie and ("%s=" % args.cookie_name) in cand_cookie):
+                continue
+            score = (1, cid)
+        else:
+            score = (_fresh_jwt_count(cand_cookie), cid)
+        if best is None or score > best[0]:
+            best = (score, cid, cand_raw, cand_cookie, cand_auth)
+        if best[0][0] >= 3:
+            break  # rich enough jar; stop fetching
+    if best is None:
+        print("FAIL: no recent request for %s carries cookie %r"
+              % (host, args.cookie_name), file=sys.stderr)
+        return 1
+    _, nid, raw, cookie, auth_line = best
 
     def _mins_check(exp, what):
         mins_left = (exp - time.time()) / 60
@@ -172,6 +237,25 @@ def main():
     cfg["token_cookie"] = name
     cfg["token_exp"] = exp
     cfg_path.write_text(json.dumps(cfg, indent=2))
+
+    # Propagate the fresh jar into baseline.req — Transport replays THAT
+    # header template, so a stale Cookie line there means a dead session
+    # regardless of what target.json holds.
+    # GitHub issue #78: operate on RAW BYTES. read_text()/write_text() apply
+    # universal-newline translation and silently rewrite CRLF baselines to
+    # LF-only, which broke Transport's header parsing (targets lost their
+    # Cookie/Referer headers -> 401). Bytes in, bytes out.
+    baseline = ROOT / "data" / "targets" / args.slug / "baseline.req"
+    if baseline.exists():
+        raw = baseline.read_bytes()
+        cookie_line = ("Cookie: " + cookie).encode()
+        raw, nsubs = re.subn(br"(?im)^cookie:[^\r\n]*",
+                             lambda _m: cookie_line, raw)
+        if nsubs:
+            baseline.write_bytes(raw)
+            print("OK baseline.req Cookie line refreshed (%d jar(s))." % nsubs)
+        else:
+            print("WARN: no Cookie line in %s to refresh" % baseline, file=sys.stderr)
 
     if mins_left < args.min_exp_minutes:
         print("STALE: %s has %.0f min left (<%.0f). Browse %s through the proxy"
