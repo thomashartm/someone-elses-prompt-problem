@@ -15,6 +15,7 @@ Owns:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -105,12 +106,17 @@ class Transport:
 
 def chat_turn(adapter, target: Target, prompt: str, *,
               fresh_conversation: bool, conversation_id=None,
-              model: str | None = None, timeout_s: int = 170) -> tuple[str, str, str | None]:
+              model: str | None = None, timeout_s: int = 170,
+              want_kind: bool = False):
     """One paced chat turn: adapter.build_body -> transport -> adapter.parse.
 
-    Returns (http_code, text, conversation_id_or_None). Sleeps RATE_PAUSE_S
-    AFTER the request (every request hits the server; pacing is not skipped
-    on failures). Callers wanting retries must opt in ABOVE this layer.
+    Returns (http_code, text, conversation_id_or_None) — or, with
+    want_kind=True, a 4-tuple with the adapter's parse kind appended
+    ("ok" | "declined" | "error"). Callers needing decline semantics
+    (multi-turn conversation reuse) use the 4-tuple; existing callers are
+    untouched. Sleeps RATE_PAUSE_S AFTER the request (every request hits the
+    server; pacing is not skipped on failures). Callers wanting retries must
+    opt in ABOVE this layer.
     """
     mdl = model or adapter.default_model()
     effective_conv = conversation_id if conversation_id is not None else target.default_conversation_id
@@ -123,4 +129,57 @@ def chat_turn(adapter, target: Target, prompt: str, *,
     if code == "200" and kind == "error":
         status = "200-empty"
     time.sleep(RATE_PAUSE_S)
-    return status, text, conv_id
+    return (status, text, conv_id, kind) if want_kind else (status, text, conv_id)
+
+
+class ConvPool:
+    """Conversation continuity for multi-turn probes (decision 3).
+
+    fresh (default): every turn starts a new conversation - probe isolation.
+    reuse: turns sharing the SAME FIRST NON-EMPTY MESSAGE continue one thread:
+      miss  -> fresh_conversation=True, remember the returned conv id
+      hit   -> fresh_conversation=False, continue the stored conv id
+      declined (or error) thread -> key cleared; the next turn starts clean
+      one key serves at most SEPP_SHIM_CONV_MAX_TURNS turns, then it is
+      dropped (bounds memory and runaway threads)
+    SERIAL RUNS ONLY: state lives in this process; parallel garak workers
+    would interleave unrelated probes into shared threads.
+    """
+
+    def __init__(self, mode: str = "fresh", max_turns: int = 10):
+        if mode not in ("fresh", "reuse"):
+            raise ValueError(f"conversation mode must be fresh|reuse, got {mode!r}")
+        self.mode = mode
+        self.max_turns = max(1, int(max_turns))
+        self.threads: dict[str, dict] = {}
+
+    @staticmethod
+    def key(messages) -> str:
+        first = next((m.content for m in messages if m.content), "")
+        return hashlib.sha1(first.encode("utf-8")).hexdigest()
+
+    def plan(self, messages) -> tuple[bool, str | None, int, str]:
+        """Returns (fresh_conversation, conversation_id, turn_number, key)."""
+        key = self.key(messages)
+        if self.mode != "reuse":
+            return True, None, 1, key
+        thread = self.threads.get(key)
+        if not thread or not thread.get("conv_id"):
+            return True, None, 1, key
+        turn = thread["turns"] + 1
+        if turn > self.max_turns:
+            self.threads.pop(key, None)
+            return True, None, 1, key
+        return False, thread["conv_id"], turn, key
+
+    def observe(self, key: str, kind: str, conv_id: str | None, turn: int) -> None:
+        if self.mode != "reuse":
+            return
+        if kind in ("declined", "error"):
+            self.threads.pop(key, None)
+            return
+        if not conv_id:
+            return
+        self.threads[key] = {"conv_id": conv_id, "turns": turn}
+        if turn >= self.max_turns:
+            self.threads.pop(key, None)

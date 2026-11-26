@@ -23,3 +23,5 @@ The testbed uses the 2025 risk IDs. The application tickets use a later numberin
 4. Evaluate required cases separately for each environment. A failed control or missing required evidence blocks promotion. Record the reason for an inapplicable feature.
 
 The existing smoke, core and full profiles, their ceilings and their runnable commands are in the [control verification guide](llm-control-verification.md). The [summary scorer](../testbed/summary-format.md) and [redaction checks](../testbed/redaction.md) describe the evidence for the first two application workflows.
+
+Exploit-level procedures — how to demonstrate each risk with concrete requests, payloads and tools, including the automated exfiltration rig — are in the [exploit reproduction suite](exploits/README.md).

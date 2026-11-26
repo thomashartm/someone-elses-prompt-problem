@@ -21,5 +21,7 @@ onboard_target.py — register sanitized fixture bundles, list targets, or verif
 llm_battery.py — run a bounded local fixture profile and print its report path. Run `python3 scripts/llm_battery.py --help`.
 llm_gate.py — check observed results against an environment policy. Run `python3 scripts/llm_gate.py --help`.
 garak_summarize.py — summarize evaluated output in a completed JSONL report. Run `python3 scripts/garak_summarize.py report.jsonl`.
+canary_listener.py — loopback JSONL request journal for exfil proofs: python3 scripts/canary_listener.py --port 8899 --log data/reports/canary.jsonl
+prove_exfil.py — listener + headless render + verdict for LLM05 exfil proofs (renderer: drivers/headless_render.py; see docs/exploits/llm05-*): python3 scripts/prove_exfil.py --url <render-url> --match SEC-xxxxxx [--assert-absent]
 
 [Document summary fixtures](../testbed/summary-format.md) — generate six document pairs and score saved testbed or Aderis attachment-job results with garak. Run `.venv-garak/bin/python scripts/summary_fixtures.py --help` for usage.

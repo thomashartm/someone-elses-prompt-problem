@@ -69,7 +69,7 @@ class ResponseEvidenceTests(unittest.TestCase):
                 root = Path(temp)
                 (root / 'inputs').write_text('Daily report\nWeekly report\n')
                 config = dict(endpoint='https://fixture.invalid/', headers={}, body_template='example',
-                              payloads_file=str(root / 'inputs'), pause_seconds=0)
+                              payloads_file=str(root / 'inputs'), pause_seconds=0, allow_writes=True)
                 path = root / 'config.json'
                 path.write_text(json.dumps(config))
                 options = {'side_effect': failure} if isinstance(failure, Exception) else {'return_value': failure}
@@ -78,7 +78,7 @@ class ResponseEvidenceTests(unittest.TestCase):
                 self.assertNotEqual(result, 0)
                 cli.assert_called_once()
                 argv = cli.call_args.args[0]
-                self.assertEqual(argv[argv.index('--body-limit') + 1], str(harness.CLI_BODY_LIMIT))
+                self.assertEqual(argv[argv.index('--body-limit') + 1], str(harness.DEFAULT_BODY_LIMIT))
                 report = json.loads(next(root.glob('llmharness-*.json')).read_text())
                 row, = report['results']
                 self.assertEqual(row['evidence'], expected)
