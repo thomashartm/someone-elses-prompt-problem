@@ -141,7 +141,10 @@ def chat_turn(adapter, target: Target, prompt: str, *,
     want_kind=True, a 4-tuple with the adapter's parse kind appended
     ("ok" | "declined" | "error"). Callers needing decline semantics
     (multi-turn conversation reuse) use the 4-tuple; existing callers are
-    untouched. Sleeps the resolved pause (Target.rate_pause_s) AFTER the
+    untouched. On a 401/sessionExpired turn the Target is rebuilt from disk
+    once and, if its credentials changed, the turn is retried (issue #78
+    family: rotating short-TTL sessions); a repeated rejection passes
+    through. Sleeps the resolved pause (Target.rate_pause_s) AFTER the
     request (every request hits the
     server; pacing is not skipped on failures). Callers wanting retries must
     opt in ABOVE this layer.
@@ -156,6 +159,20 @@ def chat_turn(adapter, target: Target, prompt: str, *,
     status = code if code != "???" else "ERR"
     if code == "200" and kind == "error":
         status = "200-empty"
+    # Hot session refresh (issue #78 family): rotating short-TTL targets
+    # invalidate the boot-time cookie jar. On a rejected turn, rebuild Target
+    # from disk ONCE (harvest_target.py may have refreshed baseline.req in
+    # the meantime) and retry - a 401 turn was never processed server-side,
+    # so the retry cannot double-fire. Retry only when credentials changed;
+    # a repeated 401 passes through untouched (no loop).
+    if status == "401" or "sessionexpired" in (text or "").lower():
+        retry_target = Target(target.slug)
+        if retry_target.header_args != target.header_args:
+            code, raw = Transport(retry_target).send(body, timeout_s=timeout_s)
+            text, kind, conv_id = adapter.parse(raw)
+            status = code if code != "???" else "ERR"
+            if code == "200" and kind == "error":
+                status = "200-empty"
     time.sleep(target.rate_pause_s)
     return (status, text, conv_id, kind) if want_kind else (status, text, conv_id)
 
