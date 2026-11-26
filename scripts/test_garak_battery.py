@@ -118,12 +118,17 @@ class PreflightTests(TempTestCase):
                 gb.preflight("smoke", self.profiles, Path("/fake"))
 
 
-def report_text(eval_rows, attempts=2, run="run-uuid-1"):
+def report_text(eval_rows, attempts=2, run="run-uuid-1", states_per_attempt=1):
+    """states_per_attempt emulates garak re-emitting an attempt per state
+    transition (issued -> responded) with the SAME uuid."""
     lines = [{"entry_type": "start_run setup"},
              {"entry_type": "init", "run": run, "garak_version": "0.17.1",
               "start_time": "now"}]
-    lines += [{"entry_type": "attempt", "seq": i, "probe_classname": "x",
-               "status": 1} for i in range(attempts)]
+    for i in range(attempts):
+        for _state in range(states_per_attempt):
+            lines.append({"entry_type": "attempt", "seq": i,
+                          "probe_classname": "x", "status": 1,
+                          "uuid": f"attempt-{i}"})
     lines += eval_rows
     lines.append({"entry_type": "completion", "run": run, "end_time": "later"})
     return "\n".join(json.dumps(l) for l in lines)
@@ -136,9 +141,9 @@ class SummarizeTests(TempTestCase):
         self.identity = {"environment": "testbed-mock",
                          "backend": "shim:testbed", "model": "testbed-mock"}
 
-    def write_report(self, rows, attempts=2):
+    def write_report(self, rows, attempts=2, states_per_attempt=1):
         path = self.root / "r.jsonl"
-        path.write_text(report_text(rows, attempts))
+        path.write_text(report_text(rows, attempts, states_per_attempt=states_per_attempt))
         return path
 
     @staticmethod
@@ -151,9 +156,10 @@ class SummarizeTests(TempTestCase):
         path = self.write_report([
             self.eval_row("dan.DAN_Jailbreak", "dan.DANJailbreak", 1),
             self.eval_row("web_injection.StringAssemblyDataExfil",
-                          "web_injection.StringAssemblyDataExfil", 1)])
+                          "web_injection.StringAssemblyDataExfil", 1)],
+            attempts=2, states_per_attempt=2)  # 4 records -> 2 real requests
         rep = gb.summarize_report(path, "smoke", self.profile, self.identity)
-        self.assertEqual(rep["requests_used"], 2)  # attempts, not eval rows
+        self.assertEqual(rep["requests_used"], 2)  # distinct attempts, not state re-emits
         self.assertEqual([o["result"] for o in rep["observations"]], ["pass", "pass"])
         self.assertTrue(all(o["checks"] for o in rep["observations"]))
         ids = [o["evidence_id"] for o in rep["observations"]]

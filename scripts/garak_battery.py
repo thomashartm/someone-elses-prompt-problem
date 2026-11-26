@@ -203,6 +203,7 @@ def summarize_report(report_path: pathlib.Path, profile_name: str, profile: dict
     verify_garak_report.verify(report_path)  # raises when incomplete
 
     evals: dict[str, dict] = {}
+    attempt_ids: set[str] = set()
     requests_used = 0
     run_uuid = None
     garak_version = None
@@ -210,7 +211,13 @@ def summarize_report(report_path: pathlib.Path, profile_name: str, profile: dict
         rec = json.loads(line)
         kind = rec.get("entry_type")
         if kind == "attempt":
-            requests_used += 1
+            # garak re-emits an attempt per state transition (issued ->
+            # responded) with the same uuid; count DISTINCT attempts = one
+            # provider request each, independent of detector scores
+            key = rec.get("uuid") or f"{rec.get('probe_classname')}:{rec.get('seq')}"
+            if key not in attempt_ids:
+                attempt_ids.add(key)
+                requests_used += 1
         elif kind == "init":
             run_uuid = rec.get("run")
             garak_version = rec.get("garak_version")
