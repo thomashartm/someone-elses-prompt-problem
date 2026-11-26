@@ -15,10 +15,13 @@ Payload lists for `helpers/llm_job_harness.py` and manual replay probes.
 | `llm_injection.txt` | Default quick-smoke set spanning the core OWASP LLM classes |
 | `llm01_prompt_injection.txt` | **LLM01** — Direct override, delimiter/role escape, framing, multilingual & base64 |
 | `llm02_sensitive_info.txt` | **LLM02** — Secrets/env vars, PII, cross-tenant leakage, debug splats |
+| `llm03_supply_chain.txt` | **LLM03** — Typosquat ids, registry confusion, version confusion, `compat=` marker exfil |
+| `llm04_poisoning.txt` | **LLM04** — Blacklist-clean paraphrased directives, homoglyph smuggling, KB row injection |
 | `llm05_output_handling.txt` | **LLM05** — XSS, Markdown image exfil, SSTI, SQL/shell/JSON sink probes |
 | `llm06_excessive_agency.txt` | **LLM06** — Role escalation, unauthorized tool calls, job smuggling, tenant tampering |
 | `llm07_system_prompt_leak.txt` | **LLM07** — Verbatim, JSON/YAML, translation, and completion-prefix prompt extraction |
 | `llm08_rag_vector.txt` | **LLM08** — Indirect injection in documents, ACL/collection boundary & metadata leaks |
+| `llm09_misinformation.txt` | **LLM09** — Fabricated citations, fake policy URLs, lookalike domains, citation laundering |
 | `llm10_unbounded_consumption.txt` | **LLM10** — Bounded checks for output-length, tool-loop, and nesting caps |
 
 ## Usage
