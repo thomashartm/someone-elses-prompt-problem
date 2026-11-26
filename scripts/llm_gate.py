@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 import sys
 
-PROFILES = {"smoke": 12, "core": 414, "full": 628}
+# Ceilings mirror configs/garak_profiles.json; recalibrated 2026-11-26 to the
+# measured intent-expanded counts (smoke 11, core 1076, full 1735 measured).
+PROFILES = {"smoke": 12, "core": 1200, "full": 1800}
 RESULTS = {"pass", "fail", "inapplicable", "inconclusive"}
 
 

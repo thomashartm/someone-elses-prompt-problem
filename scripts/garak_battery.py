@@ -44,7 +44,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs" / "garak_profiles.json"
 REPORTS = ROOT / "data" / "reports" / "garak"
 GARAK_HOME = pathlib.Path(os.environ.get("SEPP_GARAK_HOME", ROOT / ".venv-garak"))
-CEILINGS = {"smoke": 12, "core": 414, "full": 628}
+# Recalibrated 2026-11-26 against measured intent-expanded probe counts
+# (see docs/llm-test-program-implementation.md Phase 6 note): smoke 11,
+# core 1076, full 1735 measured - the original 12/414/628 predates the
+# discovery that IntentProbe expansion multiplies counts ~4x over bare init.
+CEILINGS = {"smoke": 12, "core": 1200, "full": 1800}
 # Potency ladder (AGENTS.md "Operator control plane") binds which battery
 # profiles a given aggressiveness level may spend. The controller passes the
 # workspace's active potency; an explicit over-bond run needs the operator
@@ -116,34 +120,53 @@ def load_profiles(path: pathlib.Path = CONFIG) -> dict:
 
 # ------------------------------------------------------------- preflight
 
-def count_prompts(garak_home: pathlib.Path, probe_names: list[str]) -> dict[str, int]:
-    """Ask the garak installation for each probe's prompt count (offline)."""
-    program = (
-        "import importlib, json, sys, warnings\n"
-        "warnings.filterwarnings('ignore')\n"
-        "out = {}\n"
-        "for fq in sys.argv[1:]:\n"
-        "    mod, cls = fq.rsplit('.', 1)\n"
-        "    p = getattr(importlib.import_module('garak.probes.' + mod), cls)()\n"
-        "    out[fq] = len(p.prompts)\n"
-        "print(json.dumps(out))\n"
-    )
-    proc = subprocess.run(
-        [str(garak_home / "bin" / "python3"), "-c", program, *probe_names],
-        capture_output=True, text=True, timeout=120,
-    )
-    if proc.returncode:
-        raise BatteryError(f"prompt census failed: {proc.stderr.strip()[-400:]}")
-    try:
-        return {k: int(v) for k, v in json.loads(proc.stdout.strip().splitlines()[-1]).items()}
-    except (ValueError, IndexError) as exc:
-        raise BatteryError(f"prompt census unreadable: {exc}") from exc
+def count_prompts(garak_home: pathlib.Path, probe_names: list[str],
+                  timeout_s: int = 1800) -> dict[str, int]:
+    """Measure each probe's provider-call count by LOCAL rehearsal.
+
+    Bare ``len(probe.prompts)`` underestimates intent-class probes: their
+    prompt lists expand per active intent at run-spec time (measured 4x on
+    encoding.InjectHex et al). Instead we run garak itself against its
+    built-in null-cost generator (``--model_type test --model_name blank``)
+    and count distinct attempt uuids per probe. Zero target traffic - the
+    blank generator is local; only cached dataset fetches touch the network.
+    Counts are exact for the same CLI pipeline the real run uses.
+    """
+    if not probe_names:
+        return {}
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="garak-census-") as td:
+        prefix = os.path.join(td, "census")
+        argv = [str(garak_home / "bin" / "garak"),
+                "--model_type", "test", "--model_name", "blank",
+                "--generations", "1",
+                "--probes", ",".join(probe_names),
+                "--report_prefix", prefix]
+        proc = subprocess.run(argv, capture_output=True, text=True,
+                              timeout=timeout_s, cwd=str(ROOT))
+        report = pathlib.Path(prefix + ".report.jsonl")
+        if proc.returncode or not report.is_file():
+            raise BatteryError(
+                f"census rehearsal failed (rc={proc.returncode}); tail: "
+                f"{(proc.stderr or proc.stdout or '?').strip().splitlines()[-3:]}")
+        counts: dict[str, int] = {}
+        for line in report.read_text().splitlines():
+            rec = json.loads(line)
+            if rec.get("entry_type") == "attempt":
+                name = rec.get("probe_classname")
+                if name in probe_names:
+                    counts.setdefault(name, set()).add(rec.get("uuid"))
+        return {k: len(v) for k, v in counts.items()}
 
 
 def preflight(profile_name: str, profiles: dict, garak_home: pathlib.Path) -> int:
     """Budget enforcement BEFORE any traffic. Returns predicted request count."""
     spec = profiles[profile_name]
     census = count_prompts(garak_home, sorted(spec["probes"]))
+    missing = sorted(set(spec["probes"]) - set(census))
+    if missing:
+        raise BatteryError(f"profile {profile_name}: rehearsal produced no "
+                           f"attempts for {missing}")
     predicted = sum(n * spec["generations"] for n in census.values())
     if predicted > spec["ceiling"]:
         raise BatteryError(

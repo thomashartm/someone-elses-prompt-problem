@@ -7,6 +7,8 @@ Zero network, zero garak import. Run:
     python3 -m unittest scripts.test_garak_battery
 """
 import json
+import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -55,7 +57,10 @@ class ConfigValidationTests(TempTestCase):
         for name, spec in profiles.items():
             self.assertLessEqual(spec["predicted_requests"], spec["ceiling"],
                                  f"{name} declares over-ceiling requests")
-        self.assertEqual(profiles["full"]["ceiling"], 628)
+        self.assertEqual(profiles["full"]["ceiling"], 1800)
+        # measured predictions from the rehearsal census match the live truth
+        self.assertEqual(profiles["core"]["predicted_requests"], 1076)
+        self.assertEqual(profiles["full"]["predicted_requests"], 1735)
         smoke = set(profiles["smoke"]["probes"])
         self.assertTrue(smoke <= set(profiles["core"]["probes"]))
         self.assertTrue(set(profiles["core"]["probes"]) <= set(profiles["full"]["probes"]))
@@ -89,6 +94,79 @@ class ConfigValidationTests(TempTestCase):
                 "dan.X": {"risk": "LLM01", "workflow": "w"}}}})
         with self.assertRaisesRegex(gb.BatteryError, "unknown profile 'ghost'"):
             gb.load_profiles(path)
+
+
+class CensusRehearsalTests(TempTestCase):
+    """count_prompts must be a LOCAL garak rehearsal (blank generator), exact
+    against runtime intent expansion - not a bare len(prompts)."""
+
+    def _fake_garak_run(self, report_path, attempts_per_probe):
+        def fake_run(argv, **kwargs):
+            lines = []
+            for probe, n in attempts_per_probe.items():
+                for i in range(n):  # each uuid emitted twice (state transitions)
+                    lines.append(json.dumps({"entry_type": "attempt",
+                                             "probe_classname": probe,
+                                             "uuid": f"{probe}-{i}"}))
+                    lines.append(json.dumps({"entry_type": "attempt",
+                                             "probe_classname": probe,
+                                             "uuid": f"{probe}-{i}"}))
+            report_path.write_text("\n".join(lines))
+            return subprocess.CompletedProcess(argv, 0, "stdout", "")
+        return fake_run
+
+    def test_parses_distinct_uuids_not_state_emissions(self):
+        import garak_battery as gb_
+
+        def run_capture(argv, **kwargs):
+            prefix = [a for a in argv if a.endswith("census")][0]
+            lines = []
+            for pr, n in (("encoding.InjectHex", 3),):
+                for i in range(n):
+                    for _st in range(2):  # 2 state emissions per uuid
+                        lines.append(json.dumps({
+                            "entry_type": "attempt",
+                            "probe_classname": pr, "uuid": f"u{i}"}))
+            pathlib.Path(prefix + ".report.jsonl").write_text("\n".join(lines))
+            return subprocess.CompletedProcess(argv, 0, "stdout", "")
+
+        with patch.object(gb_.subprocess, "run", run_capture):
+            counts = gb_.count_prompts(gb_.GARAK_HOME, ["encoding.InjectHex"])
+        self.assertEqual(counts, {"encoding.InjectHex": 3})  # 6 records -> 3 uuids
+
+    def test_rehearsal_uses_blank_generator_and_zero_target_refs(self):
+        import garak_battery as gb_
+
+        def run_capture(argv, **kwargs):
+            self.assertIn("--model_type", argv)
+            self.assertEqual(argv[argv.index("--model_type") + 1], "test")
+            self.assertEqual(argv[argv.index("--model_name") + 1], "blank")
+            self.assertNotIn(str(8399), argv)  # no shim port anywhere
+            prefix = argv[argv.index("--report_prefix") + 1]
+            pathlib.Path(prefix + ".report.jsonl").write_text(
+                json.dumps({"entry_type": "attempt", "probe_classname": "dan.DAN_Jailbreak",
+                            "uuid": "z"}) + "\n")
+            return subprocess.CompletedProcess(argv, 0, "stdout", "")
+
+        with patch.object(gb_.subprocess, "run", run_capture):
+            counts = gb_.count_prompts(gb_.GARAK_HOME, ["dan.DAN_Jailbreak"])
+        self.assertEqual(counts, {"dan.DAN_Jailbreak": 1})
+
+    def test_rehearsal_failure_raises_batteryerror(self):
+        import garak_battery as gb_
+
+        def run_fail(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 1, "", "boom")
+        with patch.object(gb_.subprocess, "run", run_fail):
+            with self.assertRaisesRegex(gb.BatteryError, "census rehearsal failed"):
+                gb.count_prompts(gb.GARAK_HOME, ["dan.DAN_Jailbreak"])
+
+    def test_missing_probe_in_rehearsal_blocks_preflight(self):
+        self.profiles = {"smoke": {**profile_fixture(), "ceiling": 12}}
+        with patch.object(gb, "count_prompts",
+                          return_value={"dan.DAN_Jailbreak": 1}):  # second probe missing
+            with self.assertRaisesRegex(gb.BatteryError, "no.*attempts"):
+                gb.preflight("smoke", self.profiles, Path("/fake"))
 
 
 class PreflightTests(TempTestCase):
