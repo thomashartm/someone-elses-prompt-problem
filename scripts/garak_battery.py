@@ -45,6 +45,16 @@ CONFIG = ROOT / "configs" / "garak_profiles.json"
 REPORTS = ROOT / "data" / "reports" / "garak"
 GARAK_HOME = pathlib.Path(os.environ.get("SEPP_GARAK_HOME", ROOT / ".venv-garak"))
 CEILINGS = {"smoke": 12, "core": 414, "full": 628}
+# Potency ladder (AGENTS.md "Operator control plane") binds which battery
+# profiles a given aggressiveness level may spend. The controller passes the
+# workspace's active potency; an explicit over-bond run needs the operator
+# order to raise potency FIRST (never silently).
+POTENCY_PROFILES = {
+    "stealth": {"smoke"},
+    "standard": {"smoke", "core"},
+    "aggressive": {"smoke", "core", "full"},
+    "full": {"smoke", "core", "full"},
+}
 VALID_RISKS = {f"LLM{n:02d}" for n in range(1, 11)}
 SHIM_HEALTH_TIMEOUT_S = 30
 
@@ -302,8 +312,17 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="preflight only: budget census + adapter check, zero traffic")
     ap.add_argument("--report-out", type=pathlib.Path, default=None)
+    ap.add_argument("--potency", default="standard", choices=sorted(POTENCY_PROFILES),
+                    help="workspace potency bond (AGENTS.md ladder); restricts which "
+                         "profiles may run: stealth=smoke, standard=smoke+core, "
+                         "aggressive/full=all")
     args = ap.parse_args()
 
+    if args.profile not in POTENCY_PROFILES[args.potency]:
+        print(f"potency '{args.potency}' does not cover profile '{args.profile}' "
+              f"(allowed: {sorted(POTENCY_PROFILES[args.potency])}); "
+              f"raise potency first or lower the profile", file=sys.stderr)
+        return 2
     profiles = load_profiles()
     profile = profiles[args.profile]
     print(f"== battery {args.profile}: {profile['description']}")
