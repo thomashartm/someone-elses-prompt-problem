@@ -93,6 +93,74 @@ write the adapter, then run `python3 scripts/check_adapters.py <slug>`
 `CAIDO_TARGET=<slug>`. Dialect experiments belong in the session workspace;
 promote the proven winner to the target dir.
 
+## Operator control plane (normative)
+
+The operator steers ONLY through orders in the agent shell. Four levers, all
+relayable to hunters mid-leg; the controller records the state in
+`session.json` (`workspace.py ensure --potency ...` on every change).
+
+### Potency ladder (`--potency`, default `standard`)
+
+| Level | Burst max | Pause floor (× `SEPP_RATE_PAUSE`) | Allowed probe classes |
+|---|---|---|---|
+| `stealth` | 5 | 3× | read-only GETs; no brute force; no error splat fishing |
+| `standard` | 20 | 1× | + id swapping, payload matrices, single-shot injections |
+| `aggressive` | 50 (repo max) | 1× | + enumeration sweeps, fuzzing, battery runs |
+| `full` | 50 (repo max) | 1× | + state-changing probes BEFORE operator approval is sought per-action (approval still required for destructive writes) |
+
+Hard rules (scope, rate budget, approval for destructive actions) never loosen -
+potency only tightens pacing/breadth. The controller states the active level in
+every status report; hunters read it from the workspace before their first probe.
+
+### Jumping steps
+
+Phases (orient → map → hypothesize → prove → record → report) are skip-forward
+AND skip-back on operator order ("skip mapping, go straight to prove", "back to
+orientation with the new creds"). The controller re-plans only the entries the
+order affects; legality gates (scope check, escalation) apply at ANY phase -
+a jump never waives them. Record the jump in the ledger (phase + reason).
+
+### Stop and cleanup
+
+- One hunter, cooperative: `/hunt-abort <name>` (finishes current probe, stops).
+- Everything, NOW: `/hunt-abort all` - cooperative sweep; follow with
+  `scripts/hunter_board.py stop <name> --kill` (SIGKILL) for anything that
+  ignores the flag within one probe cycle.
+- Session close: order "close the hunt" -> controller finishes all hunters,
+  runs `workspace.py finish <sid>`, and reports final brief.
+- Workspace cleanup (destructive → say what will be deleted first, then act on
+  confirmation; `--apply` is explicit):
+  `workspace.py prune --days N [--finished] [--id SID] [--host H] [--apply]`
+  (`--finished` = only closed hunts). Dry-run is the default; never prune the
+  ACTIVE workspace.
+- Session teardown: `/prune-hunt-session` and `/sepp-target-clear` for
+  session/ledger state; `/sessions` to inspect what exists first.
+
+## Engagement bootstrap (on operator order)
+
+Before any hunt leg, on the operator's order ("prep the environment",
+"bootstrap for <target>"), the CONTROLLER verifies/prepares the environment
+itself - the operator never runs project scripts by hand:
+
+1. `scripts/check_caido.py` (or `caido-cli status`) - Caido reachable at
+   `$CAIDO_URL`. If down: STOP and tell the operator to start Caido; never
+   send target traffic outside the proxy.
+2. CLI auth present; on auth errors ask the operator to re-run
+   `caido-mcp-server login` (interactive, cannot be agent-run).
+3. `scripts/export_ca.py` - cached proxy CA so proxied TLS verifies
+   (idempotent, silent OK).
+4. Credentials: `scripts/harvest_target.py --slug <slug>` pulls the freshest
+   session from history. If history has no usable auth for the target, say
+   exactly what is missing ("no authenticated requests for <host> in history -
+   log into <app> with the browser proxied through Caido") and wait.
+5. Target onboarding for non-testbed hosts: `onboard_target.py wire` →
+   `check_adapters.py` → canary via `run_garak_canary.sh` - all controller-run.
+6. Testbed target only: `make testbed-up` / `testbed-seed` if not running.
+
+Interactive browser/proxy setup and Caido startup are the only operator-physical
+steps; everything above is agent-executable. Report each step's result in one
+line before proceeding to orientation.
+
 ## Delegation: controller vs hunter
 
 The MAIN session is the CONTROLLER. It orients on Caido history (zero target

@@ -56,44 +56,32 @@ After `make setup`:
 
 `sepp.sh` also repairs stale `.venv-garak/bin` shebangs after repo moves (renames bake absolute paths into entry scripts).
 
-## Red-team investigation, start to finish
+## Steering a red-team investigation (operator view)
 
-Walkthrough for taking one delegated target from "nothing running" to a reported hunt.
+You steer; the agents work. The controller knows the full procedure (see `AGENTS.md`) and runs every project script itself — you never invoke tooling by hand. Your inputs are chat orders, slash commands, approvals, and stop signals at any time (`/hunt-abort all`).
 
-1. **Start Caido** (desktop app). Its proxy listens on `127.0.0.1:8080`. Confirm the CLI can see it:
-   ```bash
-   caido-cli status -u http://127.0.0.1:8080
-   ```
-2. **One-time tooling** (if not already done): `make setup`, then the four post-setup steps above (Caido CLI/MCP login, plugin install, `.env` → `VENICE_API_KEY`).
-3. **Route your browser through Caido**: set the system/browser proxy to `127.0.0.1:8080` and trust Caido's CA. Log into the target application normally — the authenticated requests (cookies, JWTs, OAuth grants) are now in proxy history for the agents to harvest.
-4. **Check plumbing and TLS trust**:
-   ```bash
-   ./scripts/smoke.sh                 # Caido reachability, CLI auth, helper CLIs
-   python3 scripts/export_ca.py       # cache Caido's CA so proxied TLS calls verify (idempotent)
-   ```
-5. **(Optional) warm up the local testbed** instead of a real target: `make testbed-up && make testbed-seed` — then use `http://127.0.0.1:8765` as the target below. Credentials: `testbed/README.md`.
-6. **Launch a session**: `./sepp.sh` (presets: `deepseek`, `go`; `--check` to dry-verify). The main session boots as the **controller**.
-7. **Delegate the target** — either say `target: https://api.example.com/v2/chat` in chat, or right-click a captured request in Caido HTTP History → **SEPP: send to Hunt**. Then arm the ledger and scope:
-   ```
-   /hunt-start https://api.example.com
-   /hunt-scope api.example.com
-   ```
-8. **Orientation (controller, zero attack traffic)**: reads Caido history (HTTPQL filters), maps endpoints, auth mechanisms and object-ID shapes. For a non-testbed live target, onboard it:
-   ```bash
-   python3 scripts/onboard_target.py wire --slug mytarget --url https://api.example.com/v2/chat --from-request <caido-request-id>
-   python3 scripts/check_adapters.py mytarget
-   python3 scripts/harvest_target.py --slug mytarget      # freshest session from history
-   TARGET=mytarget scripts/run_garak_canary.sh            # identity-checked garak smoke via shim
-   ```
-9. **Hunt loop (hunters, in background workspaces)**: hypothesize → cheapest experiment → prove with a legit-vs-manipulated request pair through Caido. Destructive/state-changing probes escalate to you for approval before firing. Run heavier batteries on demand:
-   ```bash
-   make llm-exploits                                              # app-layer, testbed
-   SEPP_RATE_PAUSE=2 python3 scripts/garak_battery.py --profile smoke   # model-layer, shim
-   ```
-10. **Track the hunt**: `/hunters` (live board), `/hunt-status` (deterministic report from disk), `/findings` (ledger). Every finding references Caido request IDs — no secrets in chat.
-11. **Close out**: `/hunt-brief` for the interpreted summary with recommendations; evidence, workspaces and reports persist under `data/workspaces/<host-per-day>/` and `data/reports/`.
+Only two steps are physically yours (no API can do them): **start Caido** (desktop app, proxy on `127.0.0.1:8080`) and **route your browser through that proxy, then log into the target application** — that login is what puts fresh credentials into proxy history. One-time afterwards: `make setup`, Caido plugin install, `.env` → `VENICE_API_KEY` (details in Setup above).
 
-Steps 7–11 run inside `pi`; everything is also scriptable from a plain shell (`scripts/hunter_board.py`, `helpers/findings.py`) without an agent session.
+Then the whole engagement from the agent shell:
+
+| Phase | You say / type | Agent does (autonomously) |
+|---|---|---|
+| Session | `./sepp.sh` (once) | Boots as **controller** |
+| Bootstrap | *"prep the environment for https://api.example.com"* | Verifies Caido + CLI auth, exports CA, harvests freshest credentials from history, wires/checks the target adapter, reports each result — or tells you precisely what is missing (e.g. "no authenticated traffic for this host in history") |
+| Arm | `/hunt-start https://api.example.com` · `/hunt-scope api.example.com` | Arms the findings/phase ledger and scope (equivalent: just say *"start a hunt against …"*). Say *"isolated workspace for this hunt"* and the hunt runs in its **own** workspace (`<date>-<host>--<hunt>`), parallel to any other hunt on the same host |
+| Potency | *"run stealth"* / *"go aggressive"* / *"full power, but ask before writes"* | Sets the potency level (ladder in `AGENTS.md`: `stealth` → `standard` → `aggressive` → `full`) — governs burst size, pacing floor and probe classes for every hunter, changeable mid-hunt, recorded in the workspace |
+| Orient | *"orient on the target, plan the hunt"* | Reads Caido history (zero attack traffic), maps endpoints/auth/object-IDs, proposes a prioritized probe plan **and waits for your go** |
+| Jump | *"skip mapping, go straight to prove"* / *"back to orientation with the new creds"* | Phases are skip-forward and skip-back on your order; scope/escalation gates still apply at every phase |
+| Hunt | *"go"* / *"run the exploit battery"* / *"run the smoke garak battery"* | Spawns background **hunter** subagents per leg; they hypothesize, run cheapest-experiment probes through Caido, and prove each issue with a legit-vs-manipulated request pair |
+| Approve | controller relays hunter escalations | You decide *"yes, run the DELETE test"* / *"skip that"* — the agent never approves for you |
+| Track | `/hunters` · `/hunt-status` · `/findings` | Live board, deterministic disk-derived status, evidence ledger citing Caido request IDs |
+| Stop | `/hunt-abort <name>\|all` — any time, instantly | Cooperative stop per hunter or kill sweep; controller follows with `hunter_board.py stop <name> --kill` for anything that ignores the flag |
+| Cleanup | *"close the hunt"* / *"clean up finished workspaces"* / *"wipe workspace <id> — confirm"* | Controller finishes hunters, marks the workspace closed, and prunes: dry-run report first, deletion only on your confirmation (`workspace.py prune … --apply`) |
+| Close | `/hunt-brief` | Interpreted brief: where the hunt stands, honest conclusions with request-ID citations, decisions needed with costs, next steps marked `[read-only]` or `[needs approval]` |
+
+Reports, workspaces and evidence accumulate under `data/workspaces/<host-per-day>/` and `data/reports/` for later sessions (`/sessions`, `/hunt-resume`).
+
+Want to rehearse safely first? Say *"prep the environment for the testbed"* — the controller starts and seeds the local vulnerable app and you can run the entire loop against `http://127.0.0.1:8765` (credentials in `testbed/README.md`).
 
 ## Usage
 
