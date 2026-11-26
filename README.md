@@ -99,6 +99,7 @@ Delegate a target in chat (`target: https://api.example.com/v2/chat`) or right-c
 | Command | Purpose |
 |---|---|
 | `/menu` | Capability hub: prompt templates, hunt starters, toolchain check |
+| `/capabilities` · `/caps` | Capability sheet: potency ladder with battery binding, garak profiles, every slash command, make targets — parsed from the repo, so it never advertises more than exists |
 | `/hunt` | Current hunt status and ledger |
 | `/hunt-start <url>` · `/sepp` | Arm the findings/phase ledger for a target |
 | `/hunt-scope <url-or-path>` · `/sepp-scope` | Set the delegated target scope |

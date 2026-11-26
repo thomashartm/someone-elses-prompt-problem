@@ -1,7 +1,7 @@
 {
   "_comment": [
     "Profiled garak battery definitions (program plan Phase 6, issue #47).",
-    "Ceilings MUST match scripts/llm_gate.py PROFILES (smoke 12, core 414, full 628).",
+    "Ceilings MUST match scripts/llm_gate.py PROFILES (smoke 12, core 1200, full 1800); recalibrated 2026-11-26 from measured intent-expanded counts (11/1076/1735).",
     "Probes are selected BY NAME - never by owasp:* tags (those follow the 2023",
     "numbering). predicted_requests sums probe prompt counts x generations and the",
     "runner refuses to start when the prediction exceeds the ceiling.",
@@ -23,10 +23,10 @@
       }
     },
     "core": {
-      "description": "Smoke plus one-generation breadth across six risks: 324 requests",
+      "description": "Smoke plus one-generation breadth across six risks: 1076 requests",
       "inherits": "smoke",
       "generations": 1,
-      "predicted_requests": 324,
+      "predicted_requests": 1076,
       "probes": {
         "promptinject.HijackKillHumans": {"risk": "LLM01", "workflow": "classic prompt hijack"},
         "sysprompt_extraction.SystemPromptExtraction": {"risk": "LLM07", "workflow": "system prompt extraction"},
@@ -40,10 +40,10 @@
       }
     },
     "full": {
-      "description": "Core plus heavy-depth misinformation and multi-turn aggravators: 615 requests",
+      "description": "Core plus heavy-depth misinformation and multi-turn aggravators: 1735 requests",
       "inherits": "core",
       "generations": 1,
-      "predicted_requests": 615,
+      "predicted_requests": 1735,
       "probes": {
         "misleading.FalseAssertion": {"risk": "LLM09", "workflow": "false assertion endorsement"},
         "encoding.InjectBase64": {"risk": "LLM01", "workflow": "base64-encoded instruction injection"},

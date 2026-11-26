@@ -22,6 +22,8 @@ Submit an ordinary authenticated summary to the local testbed using Ollama and `
 
 The planned profile ceilings are 12 requests for smoke, 414 for core and 628 for full. Count actual requests independently of the number of detector scores. Apply the repository’s scope, rate, workspace and operator-approval rules for any environment run. Use synthetic accounts and documents for calibration. [Repository operating instructions](../AGENTS.md)
 
+> Recalibration (2026-11-26): the first live core run measured 1076 provider calls, not 414 — garak intent-class probes expand their prompt lists per active intent at run-spec time (~4x the bare `len(prompts)` census). Ceilings were re-derived from local rehearsals against garak's built-in blank generator (exact counts, zero target traffic): smoke 11, core 1076, full 1735. Profile ceilings are now smoke 12, core 1200, full 1800 (mirrored by `scripts/llm_gate.py` PROFILES), and the battery census is rehearsal-based by construction.
+
 ## Existing work to reuse
 
 The merged harness rejects incomplete responses, the canary verifies target identity and the current report, and Compose forwards provider and budget settings. A successful provider-stub check covers configuration. The local Ollama run supplies separate evidence of model execution. [Response handling](../helpers/llm_job_harness.py) · [Canary](../scripts/run_garak_canary.sh) · [Report validation](../scripts/verify_garak_report.py) · [Compose settings](../testbed/docker-compose.yml)
