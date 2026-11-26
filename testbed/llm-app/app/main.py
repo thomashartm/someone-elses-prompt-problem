@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 import os
 import time
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.responses import JSONResponse
@@ -295,6 +295,7 @@ from . import engine as eng  # noqa: E402
 
 class SummarizeReq(BaseModel):
     note_id: int
+    response_format: Literal["quoted-excerpt"] | None = None
 
 
 class PluginInstallReq(BaseModel):
@@ -341,11 +342,14 @@ def llm_summarize(req: SummarizeReq, con=Depends(get_db), authorization: str = H
     elif guards.is_strict():
         note_text = eng.filter_blacklist(eng.normalize(note_text))
 
+    question = f"summarize note #{req.note_id}"
+    if req.response_format == "quoted-excerpt":
+        question = "Summarize the daily report. Include the dispatch reference. Finish with a double-quoted excerpt from the document."
     provider = {}
     summary = respond(
         provider=provider,
         prompt_context=note_text,
-        question=f"summarize note #{req.note_id}",
+        question=question,
         marker=_marker(),
         data_only=guards.is_strict(),
         directive_enabled=not guards.is_strict(),

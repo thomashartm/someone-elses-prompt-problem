@@ -3,11 +3,14 @@
 #
 #   sepp.sh              # GLM 5.3 flash uncensored (default)
 #   sepp.sh deepseek     # DeepSeek v4.1 flash uncensored
+#   sepp.sh inkling      # Local Ollama: inkling-2-mini:26b-a5b-nvfp4
+#   sepp.sh ollama/hf.co/mradermacher/DeepHat-V1-7B-GGUF:Q8_0
+#   sepp.sh qwen         # Local Ollama: qwen2.5:7b
 #   sepp.sh go           # OpenCode Go model (cheap long sessions; prompt-cache
 #                       #   extensions kick in) - model via SEPP_GO_MODEL env,
 #                       #   default: deepseek-v4-flash
 #   sepp.sh <model-id>   # any model registered under the venice provider
-#   sepp.sh provider/model  # explicit provider + model
+#   sepp.sh provider/model  # explicit provider + model (e.g. ollama/<tag>)
 #   sepp.sh --check      # run smoke checks only
 #   sepp.sh --setup-only # bootstrap everything, don't start pi
 #
@@ -36,8 +39,8 @@ TPL
   die "created $ROOT/.env — put your VENICE_API_KEY in it and rerun"
 fi
 set -a; source "$ROOT/.env"; set +a
-: "${VENICE_API_KEY:?VENICE_API_KEY empty — edit $ROOT/.env}"
-export VENICE_API_KEY
+export VENICE_API_KEY="${VENICE_API_KEY:-}"
+export OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434/v1}"
 
 # --- 2. repo data dirs (never committed, contents never touched) -------------
 mkdir -p "$ROOT/data/tmp" "$ROOT/data/reports" "$ROOT/data/targets" "$ROOT/data/workspaces" "$ROOT/data/spool"
@@ -49,22 +52,55 @@ log "Caido CLI authentication and instance OK"
 python3 "$ROOT/scripts/export_ca.py" >/dev/null 2>&1 \
   || warn "could not export Caido CA - proxied-TLS curl calls will fail until fixed"
 
-# --- 4. garak venv (only if missing) ------------------------------------------
+# --- 4. garak venv (create once, repair stale entry-script shebangs) ----------
 if [ ! -x "$ROOT/.venv-garak/bin/garak" ]; then
   log "creating .venv-garak (garak + shim deps) - one-time"
   command -v uv >/dev/null || die "uv not found (brew install uv)"
   uv venv --python 3.12 "$ROOT/.venv-garak" >/dev/null
   uv pip install --quiet --python "$ROOT/.venv-garak/bin/python" garak fastapi "uvicorn[standard]"
 fi
+# uv bakes an ABSOLUTE shebang into every console script at install time, so a
+# repo move/rename leaves them pointing at a path that no longer exists
+# ("bad interpreter: .../sep/.venv-garak/bin/python"). Repair in place: far
+# cheaper than recreating the venv, and idempotent when nothing is stale.
+python3 - "$ROOT/.venv-garak" <<'PYEOF'
+import os, pathlib, sys
+
+bindir = pathlib.Path(sys.argv[1]) / "bin"
+want = f"#!{bindir / 'python'}"
+fixed = []
+for entry in bindir.iterdir():
+    if entry.is_symlink() or not entry.is_file():
+        continue
+    try:
+        with entry.open("rb") as fh:
+            if fh.read(2) != b"#!":
+                continue
+        text = entry.read_text(errors="replace")
+    except OSError:
+        continue
+    first, _, rest = text.partition("\n")
+    if "/bin/python" not in first or first == want:
+        continue
+    entry.write_text(want + "\n" + rest)
+    os.chmod(entry, 0o755)
+    fixed.append(entry.name)
+if fixed:
+    print(f"repaired {len(fixed)} stale venv shebang(s) in .venv-garak/bin")
+PYEOF
 
 # --- 5. pi provider config (merge; backup only on actual change) ---------------
 mkdir -p "$PI_AGENT_DIR"
 MODELS_JSON="$PI_AGENT_DIR/models.json"
-python3 - "$MODELS_JSON" <<'PYEOF'
-import json, pathlib, shutil, sys, time
+python3 - "$MODELS_JSON" "$OLLAMA_BASE_URL" <<'PYEOF'
+import json, pathlib, shutil, sys, time, urllib.request
+
 p = pathlib.Path(sys.argv[1])
+ollama_base = sys.argv[2].rstrip("/")
 cfg = json.loads(p.read_text()) if p.exists() else {}
 cfg.setdefault("$schema", "https://pi.dev/schemas/models.schema.json")
+
+# Venice AI
 prov = cfg.setdefault("providers", {}).setdefault("venice", {})
 prov.setdefault("name", "Venice AI")
 prov["baseUrl"] = "https://api.venice.ai/api/v1"
@@ -75,6 +111,61 @@ models = {m["id"]: m for m in prov.setdefault("models", [])}
 for mid in ("glm-5-3-flash-uncensored", "deepseek-v4-1-flash-uncensored"):
     models.setdefault(mid, {"id": mid})
 prov["models"] = list(models.values())
+
+# Local Ollama (OpenAI-compatible endpoint; literal dummy apiKey so pi treats it
+# as ready without extra auth and users can switch via /model at any time)
+ZERO_COST = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+KNOWN_OLLAMA = [
+    {
+        "id": "inkling-2-mini:26b-a5b-nvfp4",
+        "name": "Inkling 2 Mini 26B (local)",
+        "reasoning": True,
+        "input": ["text", "image"],
+        "contextWindow": 1048576,
+        "maxTokens": 16384,
+        "cost": ZERO_COST,
+    },
+    {
+        "id": "qwen2.5:7b",
+        "name": "Qwen 2.5 7B (local)",
+        "reasoning": False,
+        "input": ["text"],
+        "contextWindow": 32768,
+        "maxTokens": 8192,
+        "cost": ZERO_COST,
+    },
+]
+oprov = cfg["providers"].setdefault("ollama", {})
+oprov["name"] = "Ollama (local)"
+oprov["baseUrl"] = ollama_base
+oprov["api"] = "openai-completions"
+oprov["apiKey"] = "ollama"
+ocomp = oprov.setdefault("compat", {})
+ocomp["supportsDeveloperRole"] = False
+ocomp["supportsStore"] = False
+
+omodels = {m["id"]: m for m in oprov.setdefault("models", [])}
+for entry in KNOWN_OLLAMA:
+    cur = omodels.get(entry["id"], {})
+    merged = {**entry, **cur}
+    # keep accurate metadata up to date for known local models
+    for k in ("name", "reasoning", "input", "contextWindow", "maxTokens", "cost"):
+        merged[k] = entry[k]
+    omodels[entry["id"]] = merged
+
+# Best-effort discovery of any other pulled Ollama models (2s timeout, non-fatal)
+try:
+    with urllib.request.urlopen(f"{ollama_base}/models", timeout=2) as resp:
+        data = json.loads(resp.read().decode())
+    for item in data.get("data", []):
+        mid = item.get("id")
+        if mid and mid not in omodels:
+            omodels[mid] = {"id": mid, "name": f"{mid} (local)", "cost": ZERO_COST}
+except Exception:
+    pass
+
+oprov["models"] = list(omodels.values())
+
 new = json.dumps(cfg, indent=2) + "\n"
 old = p.read_text() if p.exists() else ""
 if new != old:
@@ -142,22 +233,37 @@ if [ "${1:-}" = "--setup-only" ]; then log "setup complete"; exit 0; fi
 # --- 8. model selection + slug check ------------------------------------------
 pick_model() {
   case "${1:-glm}" in
-    glm)      echo "venice|glm-5-3-flash-uncensored" ;;
-    deepseek) echo "venice|deepseek-v4-1-flash-uncensored" ;;
+    glm)                  echo "venice|glm-5-3-flash-uncensored" ;;
+    deepseek)             echo "venice|deepseek-v4-1-flash-uncensored" ;;
+    inkling|inkling-2-mini) echo "ollama|inkling-2-mini:26b-a5b-nvfp4" ;;
+    qwen)                 echo "ollama|qwen2.5:7b" ;;
     # OpenCode Go gateway: caching extensions (pi-opencode-go-cache) are
     # provider-scoped and activate here; model overridable via SEPP_GO_MODEL.
-    go)       echo "opencode-go|${SEPP_GO_MODEL:-deepseek-v4-flash}" ;;
-    */*)      echo "${1%%/*}|${1#*/}" ;;
-    *)        echo "venice|$1" ;;
+    go)                   echo "opencode-go|${SEPP_GO_MODEL:-deepseek-v4-flash}" ;;
+    */*)                  echo "${1%%/*}|${1#*/}" ;;
+    *)                    echo "venice|$1" ;;
   esac
 }
 IFS='|' read -r PROVIDER MODEL_ID <<< "$(pick_model "${1:-glm}")"
 
-SLUGS="$(curl -sf -m 10 "https://api.venice.ai/api/v1/models" \
-  -H "Authorization: Bearer $VENICE_API_KEY" | jq -r '.data[].id' 2>/dev/null || true)"
-if [ -n "$SLUGS" ] && [ "$PROVIDER" = "venice" ] && ! grep -qx -- "$MODEL_ID" <<< "$SLUGS"; then
-  warn "model '$MODEL_ID' not in Venice /models - renamed? closest:"
-  grep -i "${MODEL_ID%%-*}" <<< "$SLUGS" | head -5 | sed 's/^/  /' || true
+if [ "$PROVIDER" = "venice" ]; then
+  : "${VENICE_API_KEY:?VENICE_API_KEY empty — edit $ROOT/.env (or launch a local model: ./sepp.sh inkling)}"
+  SLUGS="$(curl -sf -m 10 "https://api.venice.ai/api/v1/models" \
+    -H "Authorization: Bearer $VENICE_API_KEY" | jq -r '.data[].id' 2>/dev/null || true)"
+  if [ -n "$SLUGS" ] && ! grep -qx -- "$MODEL_ID" <<< "$SLUGS"; then
+    warn "model '$MODEL_ID' not in Venice /models - renamed? closest:"
+    grep -i "${MODEL_ID%%-*}" <<< "$SLUGS" | head -5 | sed 's/^/  /' || true
+  fi
+elif [ "$PROVIDER" = "ollama" ]; then
+  OLLAMA_MODELS="$(curl -sf -m 5 "${OLLAMA_BASE_URL%/}/models" | jq -r '.data[].id' 2>/dev/null || true)"
+  if [ -z "$OLLAMA_MODELS" ]; then
+    die "Ollama not reachable at $OLLAMA_BASE_URL — start Ollama (ollama serve) and rerun"
+  fi
+  if ! grep -qx -- "$MODEL_ID" <<< "$OLLAMA_MODELS"; then
+    warn "model '$MODEL_ID' not installed in Ollama ($OLLAMA_BASE_URL) — available:"
+    sed 's/^/  /' <<< "$OLLAMA_MODELS"
+    die "pull it first: ollama pull $MODEL_ID"
+  fi
 fi
 
 # --- 9. project extension visibility -------------------------------------------

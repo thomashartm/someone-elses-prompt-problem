@@ -22,4 +22,4 @@ llm_battery.py — run a bounded local fixture profile and print its report path
 llm_gate.py — check observed results against an environment policy. Run `python3 scripts/llm_gate.py --help`.
 garak_summarize.py — summarize evaluated output in a completed JSONL report. Run `python3 scripts/garak_summarize.py report.jsonl`.
 
-[Document summary fixtures](../testbed/summary-format.md) — generate six document pairs and score saved testbed or Aderis attachment-job results with garak.
+[Document summary fixtures](../testbed/summary-format.md) — generate six document pairs and score saved testbed or Aderis attachment-job results with garak. Run `.venv-garak/bin/python scripts/summary_fixtures.py --help` for usage.

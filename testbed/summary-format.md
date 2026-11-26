@@ -15,6 +15,14 @@ Choose a new directory. Keep the generated documents, their SHA-256 manifest, an
 
 ## Reproduce the testbed calibration
 
+To write a report for one tier, choose a new output directory and run the following. The command generates the original documents, copies the saved testbed capture for the requested tier, and grades it with the shared scorer.
+
+```sh
+.venv-garak/bin/python testbed/verify_summary_format.py data/reports/summary-50-strict --tier strict
+```
+
+Use `--tier off`, `naive`, or `strict`. The command writes `testbed.json` and `report.json` in the output directory. Exit 0 means that every document retained its dispatch reference and its quotation result matched the tier expectation.
+
 Run `.venv-garak/bin/python -m unittest discover -s testbed -p test_summary_fixtures.py`. The test regenerates the six document pairs and scores the saved, synthetic note-summary responses in [the calibration fixtures](controls/summary-captures). All 12 strict responses meet both checks. With guards off or naive, all six baseline responses meet both checks and all six print-layout responses lose the closing quotation while retaining the reference. These observations cover the deterministic note-summary workflow.
 
 ## Score completed results

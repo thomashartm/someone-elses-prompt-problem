@@ -96,3 +96,5 @@ strict-block / naive-bypass recipe matrix lands in `EXPECTATIONS.md` (B2).
 
 Volume `sepp-testbed_testbed-data` holds SQLite + (strict tier) the JWT
 secret. Wipe with `make testbed-down && docker volume rm sepp-testbed_testbed-data`.
+
+[Document summary format check](summary-format.md) covers paired business documents, isolated mock calibration, and scoring Aderis local results.
