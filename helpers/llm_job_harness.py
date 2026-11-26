@@ -22,6 +22,16 @@ Config: a JSON file shaped like
 Usage:
   llm_job_harness.py run config.json
   llm_job_harness.py init   > config.json      # starter config + payload file paths
+
+Config keys beyond the basics:
+  transport        "caido" (default; proxied, evidence-framed) | "direct" (stdlib HTTP)
+  body_limit       response bytes to accept before declaring the body truncated
+                   (default 200000; over 2000 the caido-cli clips long answers,
+                   which would make `absent` assertions pass falsely)
+  allow_writes     must be true for non-GET methods; the run aborts otherwise
+  chunk            requests per burst before the longer chunk pause (default 50)
+  expect           {status, contains[], absent[]} -> per-payload verdict met/failed
+  attach_request_ids  resolve newest Caido request ids per probe (best effort)
 """
 import argparse
 import json
@@ -32,11 +42,14 @@ import string
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA_REPORTS = ROOT / "data" / "reports"
 DEFAULT_PAUSE = 1.0
-CLI_BODY_LIMIT = 2_000
+DEFAULT_BODY_LIMIT = 200_000
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 MAX_SAVED_OUTPUT = 1_000_000
 
 
@@ -54,7 +67,7 @@ def render(template, payload, marker):
     return template
 
 
-def via_caido_raw(method, url, headers, body_text):
+def via_caido_raw(method, url, headers, body_text, body_limit=DEFAULT_BODY_LIMIT):
     host_path = url.split("//", 1)[1]
     path = "/" + host_path.split("/", 1)[1] if "/" in host_path else "/"
     host = host_path.split("/", 1)[0]
@@ -69,7 +82,7 @@ def via_caido_raw(method, url, headers, body_text):
         raw = ("\r\n".join(lines) + "\r\n\r\n").encode()
     try:
         proc = subprocess.run(
-            ["caido-cli", "raw", "--host", host, "--body-limit", str(CLI_BODY_LIMIT), "-f", "-"],
+            ["caido-cli", "raw", "--host", host, "--body-limit", str(body_limit), "-f", "-"],
             input=raw, capture_output=True, timeout=60,
         )
     except subprocess.TimeoutExpired:
@@ -79,6 +92,91 @@ def via_caido_raw(method, url, headers, body_text):
     if proc.returncode:
         return {"evidence": "tool_error", "reason": f"Caido CLI exited {proc.returncode}"}
     return read_response(proc.stdout)
+
+
+def via_http(method, url, headers, body_text, body_limit=DEFAULT_BODY_LIMIT):
+    """Direct transport (no proxy). Mirror of the caido response shape.
+
+    4xx/5xx are RESPONSES here - status plus body is preserved so
+    expectations like `expect.status: 429` are evaluable. Bodies beyond
+    body_limit are flagged truncated instead of silently clipped (an
+    `absent` assertion on a truncated body is inconclusive, never pass)."""
+    data = body_text.encode() if body_text else None
+    request = urllib.request.Request(url, data=data, method=method)
+    for key, value in headers.items():
+        request.add_header(key, value)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=60) as response:
+            code = str(response.status)
+            body = response.read(DEFAULT_BODY_LIMIT + 1)
+    except urllib.error.HTTPError as exc:
+        code = str(exc.code)
+        try:
+            body = exc.read(DEFAULT_BODY_LIMIT + 1)
+        except Exception:  # noqa: BLE001 - body unreadable, keep the status
+            body = b""
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        return {"evidence": "tool_error", "reason": f"direct request failed: {exc}"}
+    info = {"code": code, "body_bytes": len(body)}
+    if len(body) > body_limit:
+        body = body[:body_limit]
+        info["body_bytes"] = body_limit
+        info.update({"evidence": "truncated", "reason": "body exceeded configured body_limit"})
+        return info
+    info.update({"evidence": "complete", "body": body})
+    return info
+
+
+def evaluate_expectations(expect, row):
+    """Grade one row against the config's `expect` block.
+
+    Returns (verdict, failures): verdict in met | failed | inconclusive | None.
+    A truncated body can never satisfy `absent`/`contains` honestly, so the
+    verdict is inconclusive - matching the program rule that a truncated copy
+    is inconclusive even for required-absent checks."""
+    if not expect:
+        return None, []
+    body = row.get("body")
+    if row.get("evidence") == "truncated" or body is None:
+        return "inconclusive", ["evidence incomplete or truncated"]
+    text = body.decode(errors="replace")
+    failures = []
+    statuses = expect.get("status")
+    if statuses is not None:
+        wanted = {str(s) for s in ([statuses] if isinstance(statuses, int) else statuses)}
+        if row.get("code") not in wanted:
+            failures.append(f"status {row.get('code')} not in {sorted(wanted)}")
+    for needle in expect.get("contains", []) or []:
+        if str(needle) not in text:
+            failures.append(f"missing required text: {needle}")
+    for needle in expect.get("absent", []) or []:
+        if str(needle) in text:
+            failures.append(f"forbidden text present: {needle}")
+    return ("failed" if failures else "met"), failures
+
+
+def attach_request_ids(results, url):
+    """Best-effort: newest Caido request ids per sent request, oldest first.
+
+    Tolerates a missing/unparseable CLI; ids stay None then. Runs only when
+    explicitly enabled via `attach_request_ids` so offline/direct runs skip
+    the call."""
+    host = url.split("//", 1)[-1].split("/", 1)[0]
+    try:
+        proc = subprocess.run(
+            ["caido-cli", "history", "-f", f'req.host.eq:"{host}"', "-n", str(len(results))],
+            capture_output=True, timeout=30,
+        )
+        entries = json.loads(proc.stdout or "[]")
+        if isinstance(entries, dict):
+            entries = entries.get("requests") or entries.get("items") or []
+        ids = [str(entry.get("id")) for entry in entries if isinstance(entry, dict) and entry.get("id")]
+        ids.reverse()  # newest first -> align with send order (oldest first)
+        for row, rid in zip(results, ids):
+            row["request_id"] = rid
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        print(f"# request-id attachment skipped: {exc}")
 
 
 def read_response(output):
@@ -124,38 +222,85 @@ def cmd_run(args):
         if p.strip() and not p.strip().startswith("#")
     ]
     marker = cfg.get("marker") or rand_marker()
+    transport = cfg.get("transport", "caido")
+    if transport not in ("caido", "direct"):
+        print(f"unknown transport {transport!r} (caido|direct)", file=sys.stderr)
+        return 1
+    body_limit = int(cfg.get("body_limit", DEFAULT_BODY_LIMIT))
+    expect = cfg.get("expect") or {}
+    allow_writes = bool(cfg.get("allow_writes", False))
+    chunk = max(1, int(cfg.get("chunk", 50)))
+    chunk_pause = float(cfg.get("chunk_pause_seconds", 30))
+    pause = float(cfg.get("pause_seconds", DEFAULT_PAUSE))
+    endpoint = cfg["endpoint"]
+    method = str(cfg.get("method", "POST")).upper()
+    if method in WRITE_METHODS and not allow_writes:
+        print(f"{method} is state-changing; set \"allow_writes\": true to permit it", file=sys.stderr)
+        return 1
+
+    def send(idx, payload_text):
+        marked = payload_text.replace("{{MARKER}}", marker_this[idx])
+        body = render(cfg["body_template"], marked, marker_this[idx])
+        body_text = body if isinstance(body, str) else json.dumps(body)
+        if transport == "direct":
+            return via_http(method, endpoint, cfg["headers"], body_text, body_limit)
+        return via_caido_raw(method, endpoint, cfg["headers"], body_text, body_limit)
 
     # Baseline: neutral payload first so diffs have an anchor.
+    marker_this = {idx: marker + ("B" if idx == 0 else "") for idx in range(len(payloads))}
     results = []
-    for idx, payload in enumerate([*payloads]):
-        marker_this = marker + ("B" if idx == 0 else "")
-        body = render(cfg["body_template"], payload.replace("{{MARKER}}", marker_this), marker_this)
-        body_text = body if isinstance(body, str) else json.dumps(body)
-        response = via_caido_raw(cfg.get("method", "POST"), cfg["endpoint"], cfg["headers"], body_text)
+    tool_error = False
+    for idx, payload in enumerate(payloads):
+        response = send(idx, payload)
         body = response.pop("body", None)
         row = {"idx": idx, "code": "?", "signals": None, "payload": payload[:80], **response}
-        results.append(row)
         if row["evidence"] != "complete":
             print(f"#{idx:02d} -> {row['evidence']}: {row['reason']}")
+            tool_error = True
+            if row["evidence"] == "truncated":
+                row["verdict"], row["failing"] = "inconclusive", ["evidence truncated"]
+            results.append(row)
             break
-        signals = sorted(classify(body.decode(errors="replace"), marker_this))
-        row["signals"] = signals
-        print("#%02d -> %s %s  |  %s" % (idx, row["code"], ",".join(signals) or "-", payload[:70]))
-        time.sleep(float(cfg.get("pause_seconds", DEFAULT_PAUSE)))
+        else:
+            row["signals"] = sorted(classify(body.decode(errors="replace"), marker_this[idx]))
+            verdict, failing = evaluate_expectations(
+                expect, {"code": row["code"], "evidence": row["evidence"], "body": body})
+            row["verdict"], row["failing"] = verdict, failing
+            print("#%02d -> %s %s [%s]%s  |  %s" % (
+                idx, row["code"], ",".join(row["signals"]) or "-",
+                verdict or "-",
+                (" " + "; ".join(failing)) if verdict not in (None, "met") else "",
+                payload[:60]))
+        results.append(row)
+        time.sleep(pause)
+        if (idx + 1) % chunk == 0:
+            print(f"# burst of {chunk} reached; pausing {chunk_pause}s", flush=True)
+            time.sleep(chunk_pause)
 
-    if results and results[0]["evidence"] == "complete":
+    if cfg.get("attach_request_ids"):
+        attach_request_ids(results, endpoint)
+
+    exit_code = 0
+    graded = [r for r in results if r.get("verdict") is not None]
+    if any(r["verdict"] != "met" for r in graded):
+        exit_code = 2
+    elif tool_error:
+        exit_code = 1
+
+    if results and results[0].get("signals") is not None:
         base = results[0]["signals"]
         print("\nBaseline signals: %s" % (",".join(base) or "(none)"))
         print("\n=== PROBE RESULTS REQUIRING EYES ON RAW (diverging from baseline) ===")
         for row in results[1:]:
-            if row["signals"] is not None and set(row["signals"]) - set(base):
+            if row.get("signals") is not None and set(row["signals"]) - set(base):
                 print(" #%02d %s %s" % (row["idx"], row["code"], ",".join(row["signals"])))
     (DATA_REPORTS).mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     outfile = DATA_REPORTS / f"llmharness-{stamp}-{time.time_ns()}.json"
-    outfile.write_text(json.dumps({"results": results, "marker": marker, "body_limit": CLI_BODY_LIMIT}, indent=2))
+    outfile.write_text(json.dumps({"results": results, "marker": marker, "body_limit": body_limit,
+                                   "expect": expect, "exit_code": exit_code}, indent=2))
     print(f"\nReport: {outfile}")
-    return 0 if results and results[-1]["evidence"] == "complete" else 1
+    return exit_code
 
 
 def cmd_inspect(args):
@@ -192,6 +337,10 @@ def cmd_init(_args):
         "payloads_file": "payloads/llm_injection.txt",
         "marker": rand_marker(),
         "pause_seconds": DEFAULT_PAUSE,
+        "transport": "caido",
+        "body_limit": DEFAULT_BODY_LIMIT,
+        "chunk": 50,
+        "expect": {"status": 200},
     }
     print(json.dumps(starter, indent=2))
     pl = ROOT / "payloads" / "llm_injection.txt"
