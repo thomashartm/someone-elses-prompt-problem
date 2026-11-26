@@ -27,3 +27,15 @@ The planned profile ceilings are 12 requests for smoke, 414 for core and 628 for
 The merged harness rejects incomplete responses, the canary verifies target identity and the current report, and Compose forwards provider and budget settings. A successful provider-stub check covers configuration. The local Ollama run supplies separate evidence of model execution. [Response handling](../helpers/llm_job_harness.py) · [Canary](../scripts/run_garak_canary.sh) · [Report validation](../scripts/verify_garak_report.py) · [Compose settings](../testbed/docker-compose.yml)
 
 Application acceptance is tracked in issues #50 through #59. The document-summary fixture work belongs to #50. Keep the original document, ingestion path, completed response and test environment associated throughout a run. For a background job, follow it to completion before recording a verdict. [Document summary issue](https://github.com/thomashartm/someone-elses-prompt-problem/issues/50) · [Testbed ground truth](../testbed/EXPECTATIONS.md)
+
+## Reviewing a run
+
+| Review question | Evidence to inspect | How to record the result |
+|---|---|---|
+| Did the selected model handle this request? | Compare the configured backend and model with the completion receipt for the authenticated summary. | Name the model and workflow. Label a saved receipt with its original run so its provider call is counted once. |
+| Could an incomplete response look like a pass? | Include a saved response with the relevant text near the end, then assess a truncated copy. | The complete response supports a verdict. The truncated copy is inconclusive, including when the required check is for absent text. |
+| Did the application finish the right job? | Match the completed job ID and original attachment hash to the user-visible summary. Check that each fixture result has its own completed job. | Record the outcome of the format and reference checks separately. Missing or mismatched evidence is inconclusive. |
+| Did the quota stop work? | Compare the HTTP result with the counting provider stub before and after rejection. | Record the actual requests and provider calls. Rejection must leave the provider call count unchanged. |
+| Can a reviewer reproduce the gate decision? | Evaluate the saved observations against the named policy for that environment. Include a case with missing required evidence. | Report the failed or incomplete case by name and retain the policy and report with the run. |
+
+The summary scorer can verify the association between an attachment and a completed job offline. The control guide describes how to assess independently collected application evidence and where to find the profile report. [Document summary workflow](../testbed/summary-format.md) · [Control verification guide](llm-control-verification.md)
