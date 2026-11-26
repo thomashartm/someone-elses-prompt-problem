@@ -10,8 +10,13 @@ and everything target-specific comes from the slug's adapter
 
 Behaviour (probe-hygiene policy, applies to any target):
 - concatenates message contents into one prompt (all garak needs)
-- EVERY request uses a FRESH conversation (adapter fresh_conversation=True):
-  one poisoned probe must never cascade into the next (burned-thread lesson)
+- conversation policy via SEPP_SHIM_CONV:
+    fresh (default) EVERY request starts a new conversation (probe
+      isolation: one poisoned probe must never cascade into the next,
+      burned-thread lesson)
+    reuse turns sharing the same first message continue one thread
+      (multi-turn probes: dra/tap/goat); a declined turn drops the thread;
+      SEPP_SHIM_CONV_MAX_TURNS (default 10) caps a thread's life
 - declined/error turns are returned as plain assistant text with
   finish_reason="stop"/"error" so garak SCORES them instead of crashing
 - pacing handled by drivers.transport (SEPP_RATE_PAUSE, default 10s)
@@ -22,6 +27,7 @@ garak: OPENAI_BASE_URL=http://127.0.0.1:8399/v1 OPENAI_API_KEY=x
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import time
@@ -32,7 +38,7 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from transport import chat_turn, Target          # noqa: E402
+from transport import chat_turn, Target, ConvPool   # noqa: E402
 from adapter_loader import load_adapter          # noqa: E402
 from fastapi import FastAPI                      # noqa: E402
 from pydantic import BaseModel                   # noqa: E402
@@ -54,18 +60,23 @@ class ChatReq(BaseModel):
 def create_app(slug: str) -> FastAPI:
     adapter = load_adapter(slug)     # fail FAST at boot, not mid-scan
     target = Target(slug)
+    pool = ConvPool(os.environ.get("SEPP_SHIM_CONV", "fresh"),
+                    int(os.environ.get("SEPP_SHIM_CONV_MAX_TURNS", "10")))
     app = FastAPI(title=f"sepp-garak-shim[{slug}]")
 
     @app.post("/v1/chat/completions")
     def completions(req: ChatReq):
         prompt = "\n".join(m.content for m in req.messages if m.content)
         t0 = time.time()
-        status, text, conv_id = chat_turn(
+        fresh, conv, turn, key = pool.plan(req.messages)
+        status, text, conv_id, kind = chat_turn(
             adapter, target, prompt,
-            fresh_conversation=True,           # probe isolation, ALWAYS
-            conversation_id=None,              # fresh: target default is ignored
+            fresh_conversation=fresh,
+            conversation_id=conv,
             model=req.model or None,
+            want_kind=True,
         )
+        pool.observe(key, kind, conv_id, turn)
         body = {
             "id": f"chatcmpl-{slug}-{uuid.uuid4().hex[:8]}",
             "object": "chat.completion",
@@ -81,8 +92,10 @@ def create_app(slug: str) -> FastAPI:
             "_sepp": {
                 "target": slug,
                 "status": status,
-                "kind_hint": "scored-as-text",
+                "kind_hint": kind,
+                "conv_mode": pool.mode,
                 "conv_id": conv_id,
+                "turn": turn,
                 "elapsed_s": round(time.time() - t0, 1),
             },
         }
