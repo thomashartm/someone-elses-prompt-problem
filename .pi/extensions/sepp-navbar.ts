@@ -13,11 +13,15 @@
  *    → agent-session.prompt() dispatches the extension command and RETURNS
  *    BEFORE starting an agent run (no wasted LLM turn)
  *  - Stage: ctx.ui.pasteToEditor(text) — same review-then-Enter flow as /menu
+ *  - Mouse: TuiAltScreen (fullscreen, pi's default) enables SGR mouse
+ *    reporting; components receive clicks with local coords — same mechanism
+ *    as pi's clickable built-in-header logo. Regular mode runs without mouse
+ *    reporting (terminal-owned), so hotkeys remain the fallback there.
  *
  * Non-TUI modes untouched. Hide/show anytime with /navbar.
  */
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 type ActionKind =
 	| { kind: "direct"; cmd: string }
@@ -151,25 +155,76 @@ async function dispatch(item: NavItem, c: ExtensionContext, pi: ExtensionAPI): P
 
 // ------------------------------------------------------------------ the bar
 
-function navbarLines(theme: Theme, width: number): string[] {
+function categoryOpener(items: NavItem[], name: string) {
+	return async (ctx: ExtensionContext) => {
+		const item = await picker(ctx, `SEPP · ${name}`, items);
+		if (!item) return;
+		await dispatch(item, ctx, currentApi());
+	};
+}
+
+/** Module-level API handle: set at extension load, before any render can click. */
+let apiRef: ExtensionAPI | undefined;
+function currentApi(): ExtensionAPI {
+	if (!apiRef) throw new Error("sepp-navbar: no extension api yet");
+	return apiRef;
+}
+
+/**
+ * Column hit-map for one render: styled segment widths measured with
+ * visibleWidth (ANSI-safe), leading pad included, separators excluded.
+ */
+function buildBar(
+	theme: Theme,
+): { line: string; targets: { x0: number; x1: number; name: string }[] } {
 	const seg = (key: string, name: string) => {
 		const letter = key.replace("alt+", "");
 		return theme.fg("accent", `⌥${letter} `) + theme.bold(name);
 	};
-	const segments = [
-		theme.fg("accent", theme.bold("SEPP")),
-		...CATEGORY_KEY.map((c) => seg(c.key, c.name)),
-		seg("alt+a", "All"),
+	const defs: { name: string; styled: string }[] = [
+		{ name: "SEPP", styled: theme.fg("accent", theme.bold("SEPP")) },
+		...CATEGORY_KEY.map((c) => ({ name: c.name, styled: seg(c.key, c.name) })),
+		{ name: "All", styled: seg("alt+a", "All") },
 	];
-	const bar = segments.join(theme.fg("muted", "  ▸  "));
-	const hint = theme.fg("dim", "/navbar hide · alt+g menu · ctrl+o help");
-	return [` ${bar}`, ` ${hint}`];
+	const separator = theme.fg("muted", "  ▸  ");
+	const sepW = visibleWidth(separator);
+
+	const targets: { x0: number; x1: number; name: string }[] = [];
+	let x = 1; // leading pad " "
+	const parts: string[] = [" "];
+	for (const d of defs) {
+		const w = visibleWidth(d.styled);
+		targets.push({ x0: x, x1: x + w, name: d.name });
+		parts.push(d.styled, separator);
+		x += w + sepW;
+	}
+	return { line: parts.join(""), targets };
 }
 
-function navbarComponent(theme: Theme) {
+function navbarComponent(theme: Theme, ctx: ExtensionContext) {
+	let hits: { x0: number; x1: number; open: (c: ExtensionContext) => Promise<void> }[] = [];
+
+	const openers: Record<string, (c: ExtensionContext) => Promise<void>> = {
+		SEPP: categoryOpener(ALL_ITEMS, "All commands"),
+		Hunt: categoryOpener(HUNT_ITEMS, "Hunt"),
+		Board: categoryOpener(BOARD_ITEMS, "Board"),
+		Maintain: categoryOpener(MAINTAIN_ITEMS, "Maintain"),
+		All: categoryOpener(ALL_ITEMS, "All commands"),
+	};
+
 	return {
 		render(width: number): string[] {
-			return navbarLines(theme, width).map((l) => truncateToWidth(l, width));
+			const bar = buildBar(theme);
+			hits = bar.targets.map((t) => ({ x0: t.x0, x1: t.x1, open: openers[t.name] })).filter((t) => t.open);
+			const hint = theme.fg("dim", "click · /navbar hide · alt+g menu · ctrl+o help");
+			return [bar.line, ` ${hint}`].map((l) => truncateToWidth(l, width));
+		},
+		handleMouse(event: { type: string; x: number; y: number }): { handled: boolean } | undefined {
+			if (event.type !== "click" || event.y !== 0) return undefined;
+			const hit = hits.find((h) => event.x >= h.x0 && event.x < h.x1);
+			if (!hit) return undefined;
+			void hit.open(ctx);
+			return { handled: true };
 		},
 	};
 }
@@ -177,35 +232,33 @@ function navbarComponent(theme: Theme) {
 // ---------------------------------------------------------------- extension
 
 export default function sepNavbarExtension(pi: ExtensionAPI) {
+	apiRef = pi;
 
 	pi.on("session_start", async (_event, ctx) => {
 		if (ctx.mode !== "tui" || !navbarVisible) return;
-		ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => navbarComponent(theme), {
+		ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => navbarComponent(theme, ctx), {
 			placement: "aboveEditor",
 		});
 	});
 
-	async function openCategory(cat: { name: string; items: NavItem[] }, ctx: ExtensionContext) {
-		const item = await picker(ctx, `SEPP · ${cat.name}`, cat.items);
-		if (!item) return;
-		await dispatch(item, ctx, pi);
-	}
+	// Click targets and keyboard shortcuts share one opener factory.
+	// categoryOpener resolves the extension API lazily via currentApi().
 
 	pi.registerShortcut("alt+h" as any, {
 		description: "SEPP nav: Hunt",
-		handler: async (ctx) => openCategory(CATEGORY_KEY[0], ctx),
+		handler: async (ctx) => categoryOpener(HUNT_ITEMS, "Hunt")(ctx),
 	});
 	pi.registerShortcut("alt+b" as any, {
 		description: "SEPP nav: Board",
-		handler: async (ctx) => openCategory(CATEGORY_KEY[1], ctx),
+		handler: async (ctx) => categoryOpener(BOARD_ITEMS, "Board")(ctx),
 	});
 	pi.registerShortcut("alt+m" as any, {
 		description: "SEPP nav: Maintain",
-		handler: async (ctx) => openCategory(CATEGORY_KEY[2], ctx),
+		handler: async (ctx) => categoryOpener(MAINTAIN_ITEMS, "Maintain")(ctx),
 	});
 	pi.registerShortcut("alt+a" as any, {
 		description: "SEPP nav: all commands",
-		handler: async (ctx) => openCategory({ name: "All commands", items: ALL_ITEMS }, ctx),
+		handler: async (ctx) => categoryOpener(ALL_ITEMS, "All commands")(ctx),
 	});
 
 	pi.registerCommand("navbar", {
@@ -214,7 +267,7 @@ export default function sepNavbarExtension(pi: ExtensionAPI) {
 			navbarVisible = !navbarVisible;
 			ctx.ui.setWidget(
 				WIDGET_KEY,
-				navbarVisible ? (_tui, theme) => navbarComponent(theme) : undefined,
+				navbarVisible ? (_tui, theme) => navbarComponent(theme, ctx) : undefined,
 				{ placement: "aboveEditor" },
 			);
 			await ctx.ui.notify(navbarVisible ? "SEPP navbar shown" : "SEPP navbar hidden", "info");
