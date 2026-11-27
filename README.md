@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/sepp-logo-v2.jpg" alt="SEPP Someone Else's Prompt Problem" width="600">
+  <img src="assets/sepp-logo-white.jpg" alt="SEPP Someone Else's Prompt Problem" width="600">
 </p>
 
 # SEPP (Someone Else's Prompt Problem)
