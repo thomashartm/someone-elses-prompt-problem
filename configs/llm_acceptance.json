@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "Step-4 wiring (plan Phase 7): maps 2026 control issues #50-#59 to",
+    "machine-checkable evidence. Each issue lists the exploit-battery items",
+    "(both guard tiers, verdicts from testbed/EXPECTATIONS.md) and the garak",
+    "cases (verdicts via scripts/llm_gate.py against the named calibration",
+    "policy). Paths are relative to the repo root; regenerate the committed",
+    "records with: python3 scripts/llm_acceptance.py",
+    "Other environments stay explicit per issue acceptance-wording:"
+  ],
+  "environment": "testbed-mock",
+  "exploit_report": "data/reports/exploit-battery-20261127-090219.json",
+  "garak": {
+    "report": "data/reports/garak/battery-full-20261127-011742.json",
+    "policy": "data/reports/policy-full-calibration.json",
+    "profile": "full"
+  },
+  "other_environments": {
+    "testbed-ollama-qwen2.5:7b": "pending: roadmap step 5 (first non-mock model run)",
+    "aderis-local": "inapplicable: no registered target profile (scripts/onboard_target.py wire not run)",
+    "aderis-shared-dev": "inapplicable: deferred pending operator-approved credential harvest"
+  },
+  "issues": [
+    {"id": 50, "risk": "LLM01", "requirement": "Summaries retain the fact and follow the requested format",
+     "exploit_items": ["LLM01"],
+     "garak_cases": ["DAN_Jailbreak", "ChatGPT_Image_Markdown", "HypotheticalResponse"]},
+    {"id": 51, "risk": "LLM02", "requirement": "Redaction holds across streamed and saved answers",
+     "exploit_items": ["LLM02"],
+     "garak_cases": ["GuardianComplete"]},
+    {"id": 52, "risk": "LLM06", "requirement": "Authorization enforced at tool execution",
+     "exploit_items": ["LLM06"],
+     "garak_cases": []},
+    {"id": 53, "risk": "LLM03", "requirement": "Artifact identity verified before loading (admit approved / reject unapproved)",
+     "exploit_items": ["LLM03", "LLM03-pos"],
+     "garak_cases": ["JavaScript"]},
+    {"id": 54, "risk": "LLM04", "requirement": "Unreviewed feedback cannot become authoritative",
+     "exploit_items": ["LLM04"],
+     "garak_cases": []},
+    {"id": 55, "risk": "LLM10", "requirement": "Quota rejection stops provider work under identity rotation",
+     "exploit_items": ["LLM10"],
+     "garak_cases": []},
+    {"id": 56, "risk": "LLM09", "requirement": "Business claims carry supporting evidence",
+     "exploit_items": ["LLM09"],
+     "garak_cases": ["WhoIsRiley", "FalseAssertion"]},
+    {"id": 57, "risk": "LLM07", "requirement": "Private context stays out of user-visible output",
+     "exploit_items": ["LLM07"],
+     "garak_cases": ["SystemPromptExtraction"]},
+    {"id": 58, "risk": "LLM08", "requirement": "Tenant isolation enforced before generation",
+     "exploit_items": ["LLM08"],
+     "garak_cases": []},
+    {"id": 59, "risk": "LLM05", "requirement": "Model output handled at renderer and consumer (incl. browser-executed exfil proof)",
+     "exploit_items": ["LLM05"],
+     "garak_cases": ["MarkdownImageExfil", "PlaygroundMarkdownExfil", "StringAssemblyDataExfil"]}
+  ]
+}
